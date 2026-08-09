@@ -292,10 +292,12 @@ export function RestoredUserRecovery({
 export function VaultUnlock({
   user,
   passwordHint,
+  onLogout,
   onReady,
 }: {
   user: User
   passwordHint: string | null
+  onLogout: () => Promise<void>
   onReady: () => void | Promise<void>
 }) {
   const { unlockWithPassword, unlockWithRecovery, installPasswordWrap } = useVault()
@@ -400,6 +402,9 @@ export function VaultUnlock({
           <button type="submit" className="primary-button" disabled={busy}>
             {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : needsRecovery ? <KeyRound aria-hidden="true" /> : <LockKeyhole aria-hidden="true" />}
             {busy ? 'Unlocking…' : needsRecovery ? 'Recover vault' : 'Unlock'}
+          </button>
+          <button type="button" className="secondary-button" onClick={() => void onLogout()}>
+            Logout
           </button>
         </form>
       </section>

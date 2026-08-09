@@ -68,6 +68,7 @@ function AuthenticatedApp({
       <VaultUnlock
         user={session.user}
         passwordHint={passwordHint}
+        onLogout={onLogout}
         onReady={async () => {
           const user = await api.me()
           onUserUpdated(user)
