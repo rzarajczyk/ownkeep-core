@@ -4,6 +4,20 @@ Self-hosted, open-source notes app — text and checklist notes, labels, pinning
 attachments, search, Google Keep import, and multi-user accounts. A small Google
 Keep-style alternative you run with Docker.
 
+---
+
+WARNING!
+
+THIS SERVICE IS IN ACTIVE DEVELOPMENT PHASE
+
+IT'S NOT SUPPOSED TO BE USED BY ANYONE - ONLY FOR TESTING
+
+EXPECT BREAKING CHANGES, CRASHES AND DATA LOSS
+
+YOU HAVE BEEN WARNED!
+
+---
+
 **License:** [Apache License 2.0](LICENSE). The OwnKeep name and logos are
 trademarks and are **not** covered by the code license (see [NOTICE](NOTICE)).
 
