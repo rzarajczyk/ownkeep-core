@@ -56,6 +56,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,6 +64,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from './api'
@@ -97,6 +99,16 @@ import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD
 import { useVault } from './vault/VaultContext'
 
 type TextEditMode = 'edit' | 'rich' | 'preview'
+
+type FormattingSelectionAnchor = {
+  top: number
+  centerX: number
+}
+
+type FormattingToolbarPosition = {
+  top: number
+  left: number
+}
 
 interface NoteEditorProps {
   note: Note
@@ -137,6 +149,98 @@ function clearRenderedPreview(note: Note): Note {
     items: note.items.map((item) =>
       item.textRendered ? { ...item, textRendered: '' } : item,
     ),
+  }
+}
+
+function textControlSelectionRect(
+  control: HTMLInputElement | HTMLTextAreaElement,
+): DOMRect | null {
+  const start = control.selectionStart
+  const end = control.selectionEnd
+  if (start === null || end === null || start === end) return null
+
+  const controlRect = control.getBoundingClientRect()
+  const styles = window.getComputedStyle(control)
+  const mirror = document.createElement('div')
+  const marker = document.createElement('span')
+  Object.assign(mirror.style, {
+    position: 'fixed',
+    top: `${controlRect.top - control.scrollTop}px`,
+    left: `${controlRect.left - control.scrollLeft}px`,
+    width: `${control.clientWidth}px`,
+    boxSizing: 'border-box',
+    padding: styles.padding,
+    border: styles.border,
+    font: styles.font,
+    letterSpacing: styles.letterSpacing,
+    lineHeight: styles.lineHeight,
+    textAlign: styles.textAlign,
+    textIndent: styles.textIndent,
+    textTransform: styles.textTransform,
+    whiteSpace: control instanceof HTMLTextAreaElement ? 'pre-wrap' : 'pre',
+    overflowWrap: 'break-word',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+  })
+  mirror.textContent = control.value.slice(0, start)
+  marker.textContent = control.value.slice(start, end) || ' '
+  mirror.append(marker)
+  document.body.append(mirror)
+  const rect = firstVisibleRect(marker.getClientRects(), controlRect)
+  mirror.remove()
+  return rect
+}
+
+function intersectRects(rect: DOMRect, bounds: DOMRect): DOMRect | null {
+  const top = Math.max(rect.top, bounds.top)
+  const right = Math.min(rect.right, bounds.right)
+  const bottom = Math.min(rect.bottom, bounds.bottom)
+  const left = Math.max(rect.left, bounds.left)
+  if (right <= left || bottom <= top) return null
+  return new DOMRect(left, top, right - left, bottom - top)
+}
+
+function firstVisibleRect(rects: DOMRectList | DOMRect[], bounds: DOMRect): DOMRect | null {
+  return [...rects]
+    .sort((a, b) => a.top - b.top || a.left - b.left)
+    .map((rect) => intersectRects(rect, bounds))
+    .find((rect): rect is DOMRect => rect !== null) ?? null
+}
+
+function domSelectionRect(rootSelector: string): DOMRect | null {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount || selection.isCollapsed) return null
+  const range = selection.getRangeAt(0)
+  const selectedNode =
+    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.commonAncestorContainer as Element)
+      : range.commonAncestorContainer.parentElement
+  if (!selectedNode?.closest(rootSelector)) return null
+
+  const viewport =
+    selectedNode.closest<HTMLElement>('.rich-block-editor-host, .checklist-editor')
+      ?.getBoundingClientRect() ?? selectedNode.getBoundingClientRect()
+  return firstVisibleRect(range.getClientRects(), viewport)
+}
+
+function placeFormattingToolbar(
+  dialog: HTMLDialogElement,
+  toolbar: HTMLElement,
+  anchor: FormattingSelectionAnchor,
+): FormattingToolbarPosition {
+  const pad = 8
+  const gap = 20
+  const toolbarHeight = Math.max(toolbar.offsetHeight, 42)
+  const toolbarWidth = Math.max(toolbar.offsetWidth, 280)
+  const dialogRect = dialog.getBoundingClientRect()
+  const halfWidth = toolbarWidth / 2
+  const left = Math.min(
+    dialogRect.right - halfWidth - pad,
+    Math.max(dialogRect.left + halfWidth + pad, anchor.centerX),
+  )
+  return {
+    top: anchor.top - toolbarHeight - gap,
+    left,
   }
 }
 
@@ -385,11 +489,14 @@ export function NoteEditor({
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const editorContentAreaRef = useRef<HTMLDivElement>(null)
+  const formattingToolbarRef = useRef<HTMLDivElement>(null)
+  const updateFormattingToolbarRef = useRef<(target?: EventTarget | null) => void>(() => {})
+  const pointerSelectingRef = useRef(false)
   const richBlockEditorRef = useRef<Editor | null>(null)
   const richInlineEditorsRef = useRef<Map<string, Editor>>(new Map())
   const labelMenuRef = useRef<HTMLDivElement>(null)
   const colorMenuRef = useRef<HTMLDivElement>(null)
-  const formattingMenuRef = useRef<HTMLDivElement>(null)
   const newLabelRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(note)
   const latestDraft = useRef(note)
@@ -407,7 +514,10 @@ export function NoteEditor({
   const [closing, setClosing] = useState(false)
   const [labelMenuOpen, setLabelMenuOpen] = useState(false)
   const [colorMenuOpen, setColorMenuOpen] = useState(false)
-  const [formattingMenuOpen, setFormattingMenuOpen] = useState(false)
+  const [formattingSelectionAnchor, setFormattingSelectionAnchor] =
+    useState<FormattingSelectionAnchor | null>(null)
+  const [formattingToolbarPosition, setFormattingToolbarPosition] =
+    useState<FormattingToolbarPosition | null>(null)
   const [textEditMode, setTextEditMode] = useState<TextEditMode>('rich')
   const [previewHtml, setPreviewHtml] = useState(note.contentRendered)
   const [itemPreviewHtml, setItemPreviewHtml] = useState<Record<string, string>>(() =>
@@ -443,6 +553,21 @@ export function NoteEditor({
       setDraft(note)
     }
   }, [note])
+
+  useLayoutEffect(() => {
+    if (!formattingSelectionAnchor) {
+      setFormattingToolbarPosition(null)
+      return
+    }
+    const dialog = dialogRef.current
+    const toolbar = formattingToolbarRef.current
+    if (!dialog || !toolbar) return
+
+    const next = placeFormattingToolbar(dialog, toolbar, formattingSelectionAnchor)
+    setFormattingToolbarPosition((previous) =>
+      previous && previous.top === next.top && previous.left === next.left ? previous : next,
+    )
+  }, [formattingSelectionAnchor])
 
   useEffect(() => {
     setRememberedLabels((previous) => {
@@ -512,28 +637,6 @@ export function NoteEditor({
   }, [colorMenuOpen])
 
   useEffect(() => {
-    if (!formattingMenuOpen) return
-    const closeMenu = (event: MouseEvent) => {
-      if (!formattingMenuRef.current?.contains(event.target as Node)) {
-        setFormattingMenuOpen(false)
-      }
-    }
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        setFormattingMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', closeMenu)
-    document.addEventListener('keydown', closeOnEscape, true)
-    return () => {
-      document.removeEventListener('mousedown', closeMenu)
-      document.removeEventListener('keydown', closeOnEscape, true)
-    }
-  }, [formattingMenuOpen])
-
-  useEffect(() => {
     if (draft.type !== 'TEXT' || textEditMode !== 'preview') return
     const timer = window.setTimeout(() => {
       setPreviewHtml(renderMarkdown(draft.contentRaw, draft.attachments))
@@ -579,7 +682,6 @@ export function NoteEditor({
     const editor = activeRichEditor()
     if (!editor) return
     command(editor)
-    setFormattingMenuOpen(false)
   }
 
   useEffect(() => {
@@ -777,6 +879,67 @@ export function NoteEditor({
     })
   }
 
+  function updateFormattingToolbar(target?: EventTarget | null) {
+    if (pointerSelectingRef.current) return
+    if (target instanceof Element && target.closest('.formatting-toolbar')) return
+
+    const area = editorContentAreaRef.current
+    if (!area || textEditMode === 'preview') {
+      setFormattingSelectionAnchor(null)
+      setFormattingToolbarPosition(null)
+      return
+    }
+
+    const activeElement =
+      target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+        ? target
+        : document.activeElement
+    let selectionRect: DOMRect | null = null
+    if (
+      (activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement) &&
+      area.contains(activeElement)
+    ) {
+      selectionRect = textControlSelectionRect(activeElement)
+    } else {
+      selectionRect = domSelectionRect('.rich-block-editor, .rich-inline-editor')
+    }
+
+    if (!selectionRect || (selectionRect.width === 0 && selectionRect.height === 0)) {
+      setFormattingSelectionAnchor(null)
+      setFormattingToolbarPosition(null)
+      return
+    }
+
+    setFormattingSelectionAnchor({
+      top: selectionRect.top,
+      centerX: selectionRect.left + selectionRect.width / 2,
+    })
+  }
+  updateFormattingToolbarRef.current = updateFormattingToolbar
+
+  useEffect(() => {
+    if (textEditMode === 'preview') return
+
+    const onSelectionChange = () => {
+      // Ignore in-progress pointer drags; show only after selection finishes.
+      if (pointerSelectingRef.current) return
+      updateFormattingToolbarRef.current()
+    }
+    const onPointerUp = () => {
+      if (!pointerSelectingRef.current) return
+      pointerSelectingRef.current = false
+      updateFormattingToolbarRef.current()
+    }
+
+    document.addEventListener('selectionchange', onSelectionChange)
+    document.addEventListener('pointerup', onPointerUp)
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange)
+      document.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [textEditMode])
+
   function runFormat(
     markdown: (snapshot: TextareaSnapshot) => {
       value: string
@@ -789,12 +952,41 @@ export function NoteEditor({
     else applyMarkdownFormat(markdown)
   }
 
+  function formatButton(
+    label: string,
+    icon: ReactNode,
+    markdown: (snapshot: TextareaSnapshot) => {
+      value: string
+      selectionStart: number
+      selectionEnd: number
+    },
+    rich: (editor: Editor) => void,
+  ) {
+    return (
+      <Tooltip label={label}>
+        <button
+          type="button"
+          aria-label={label}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => runFormat(markdown, rich)}
+        >
+          {icon}
+        </button>
+      </Tooltip>
+    )
+  }
+
+  function clearFormattingToolbar() {
+    setFormattingSelectionAnchor(null)
+    setFormattingToolbarPosition(null)
+  }
+
   function enterEditMode(selection: PendingEditorSelection | null = null) {
     if (selection) pendingSelection.current = selection
     setPendingRichOffset(null)
     setPendingRichItemId(null)
+    clearFormattingToolbar()
     setTextEditMode('edit')
-    setFormattingMenuOpen(false)
   }
 
   function enterRichMode(selection: PendingEditorSelection | null = null) {
@@ -806,8 +998,8 @@ export function NoteEditor({
       setPendingRichItemId(null)
     }
     pendingSelection.current = null
+    clearFormattingToolbar()
     setTextEditMode('rich')
-    setFormattingMenuOpen(false)
   }
 
   function editFromPreview(event: ReactMouseEvent<HTMLElement>) {
@@ -1234,6 +1426,124 @@ export function NoteEditor({
     [draft.labels],
   )
 
+  const formattingToolbar =
+    textEditMode === 'preview' || !formattingSelectionAnchor ? null : (
+      <div
+        ref={formattingToolbarRef}
+        className="formatting-toolbar"
+        role="toolbar"
+        aria-label={t('editor.toolbar.formatting')}
+        style={
+          formattingToolbarPosition ?? {
+            top: formattingSelectionAnchor.top - 62,
+            left: formattingSelectionAnchor.centerX,
+            visibility: 'hidden',
+          }
+        }
+      >
+        {draft.type === 'TEXT' ? (
+          <>
+            {formatButton(
+              t('editor.toolbar.heading1'),
+              <Heading1 aria-hidden="true" />,
+              (snapshot) => setHeadingLevel(snapshot, 1),
+              (editor) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.heading2'),
+              <Heading2 aria-hidden="true" />,
+              (snapshot) => setHeadingLevel(snapshot, 2),
+              (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.normalText'),
+              <Type aria-hidden="true" />,
+              (snapshot) => setHeadingLevel(snapshot, 0),
+              (editor) => editor.chain().focus().setParagraph().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.codeBlock'),
+              <Code2 aria-hidden="true" />,
+              insertFencedCode,
+              (editor) => editor.chain().focus().toggleCodeBlock().run(),
+            )}
+            <span className="formatting-menu-separator" aria-hidden="true" />
+            {formatButton(
+              t('editor.toolbar.bold'),
+              <Bold aria-hidden="true" />,
+              toggleBold,
+              (editor) => editor.chain().focus().toggleBold().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.italic'),
+              <Italic aria-hidden="true" />,
+              toggleItalic,
+              (editor) => editor.chain().focus().toggleItalic().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.underline'),
+              <Underline aria-hidden="true" />,
+              toggleUnderline,
+              (editor) => editor.chain().focus().toggleUnderline().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.strikethrough'),
+              <Strikethrough aria-hidden="true" />,
+              toggleStrikethrough,
+              (editor) => editor.chain().focus().toggleStrike().run(),
+            )}
+            <span className="formatting-menu-separator" aria-hidden="true" />
+            {formatButton(
+              t('editor.toolbar.orderedList'),
+              <ListOrdered aria-hidden="true" />,
+              (snapshot) => toggleList(snapshot, 'ordered'),
+              (editor) => editor.chain().focus().toggleOrderedList().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.unorderedList'),
+              <List aria-hidden="true" />,
+              (snapshot) => toggleList(snapshot, 'unordered'),
+              (editor) => editor.chain().focus().toggleBulletList().run(),
+            )}
+            <span className="formatting-menu-separator" aria-hidden="true" />
+            {formatButton(
+              t('editor.toolbar.horizontalLine'),
+              <Minus aria-hidden="true" />,
+              insertHorizontalRule,
+              (editor) => editor.chain().focus().setHorizontalRule().run(),
+            )}
+          </>
+        ) : (
+          <>
+            {formatButton(
+              t('editor.toolbar.bold'),
+              <Bold aria-hidden="true" />,
+              toggleBold,
+              (editor) => editor.chain().focus().toggleBold().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.italic'),
+              <Italic aria-hidden="true" />,
+              toggleItalic,
+              (editor) => editor.chain().focus().toggleItalic().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.strikethrough'),
+              <Strikethrough aria-hidden="true" />,
+              toggleStrikethrough,
+              (editor) => editor.chain().focus().toggleStrike().run(),
+            )}
+            {formatButton(
+              t('editor.toolbar.inlineCode'),
+              <Code aria-hidden="true" />,
+              toggleInlineCode,
+              (editor) => editor.chain().focus().toggleCode().run(),
+            )}
+          </>
+        )}
+      </div>
+    )
+
   return (
     <dialog
       ref={dialogRef}
@@ -1286,8 +1596,8 @@ export function NoteEditor({
               role="tab"
               className={textEditMode === 'preview' ? 'active' : undefined}
               onClick={() => {
+                clearFormattingToolbar()
                 setTextEditMode('preview')
-                setFormattingMenuOpen(false)
                 setPendingRichOffset(null)
                 setPendingRichItemId(null)
               }}
@@ -1320,101 +1630,114 @@ export function NoteEditor({
           aria-label={t('editor.titleAria')}
         />
 
-        {draft.type === 'TEXT' ? (
-          textEditMode === 'preview' ? (
+        <div
+          className="editor-content-area"
+          ref={editorContentAreaRef}
+          onPointerDown={(event) => {
+            if ((event.target as Element).closest?.('.formatting-toolbar')) return
+            pointerSelectingRef.current = true
+            clearFormattingToolbar()
+          }}
+          onKeyUp={(event) => updateFormattingToolbar(event.target)}
+          onScrollCapture={() => updateFormattingToolbar()}
+        >
+          {draft.type === 'TEXT' ? (
+            textEditMode === 'preview' ? (
+              <div
+                className="editor-markdown-preview"
+                aria-label={t('editor.previewAria')}
+                onClick={editFromPreview}
+              >
+                {previewHtml ? (
+                  <RenderedMarkdown
+                    className="rendered-content"
+                    html={previewHtml}
+                    noteId={draft.id}
+                    attachments={draft.attachments}
+                  />
+                ) : (
+                  <p className="editor-preview-empty">{t('editor.previewEmpty')}</p>
+                )}
+              </div>
+            ) : textEditMode === 'rich' ? (
+              <RichBlockEditor
+                value={draft.contentRaw}
+                attachments={draft.attachments}
+                placeholder={t('editor.contentPlaceholder')}
+                aria-label={t('editor.contentAria')}
+                pendingOffset={pendingRichOffset}
+                onPendingOffsetConsumed={() => setPendingRichOffset(null)}
+                onChange={(contentRaw) =>
+                  change((current) => ({ ...current, contentRaw }))
+                }
+                onEditorReady={(editor) => {
+                  richBlockEditorRef.current = editor
+                }}
+              />
+            ) : (
+              <textarea
+                ref={bodyRef}
+                className="editor-body"
+                value={draft.contentRaw}
+                onChange={(event) =>
+                  change((current) => ({ ...current, contentRaw: event.target.value }))
+                }
+                placeholder={t('editor.contentPlaceholder')}
+                aria-label={t('editor.contentAria')}
+              />
+            )
+          ) : (
             <div
-              className="editor-markdown-preview"
-              aria-label={t('editor.previewAria')}
-              onClick={editFromPreview}
+              className={`checklist-editor${textEditMode === 'preview' ? ' preview-mode' : ''}${textEditMode === 'rich' ? ' rich-mode' : ''}`}
+              aria-label={textEditMode === 'preview' ? t('editor.previewAria') : undefined}
+              onClick={textEditMode === 'preview' ? editFromPreview : undefined}
             >
-              {previewHtml ? (
-                <RenderedMarkdown
-                  className="rendered-content"
-                  html={previewHtml}
-                  noteId={draft.id}
-                  attachments={draft.attachments}
-                />
-              ) : (
-                <p className="editor-preview-empty">{t('editor.previewEmpty')}</p>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderItems}>
+                <SortableContext
+                  items={draft.items.map((item) => item.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {draft.items.map((item, index) => (
+                    <SortableChecklistRow
+                      key={item.id}
+                      item={item}
+                      index={index}
+                      itemCount={draft.items.length}
+                      previousIndent={index > 0 ? (draft.items[index - 1].indent ?? 0) : 0}
+                      mode={textEditMode}
+                      previewHtml={itemPreviewHtml[item.id] ?? item.textRendered}
+                      pendingOffset={
+                        pendingRichItemId === item.id ? pendingRichOffset : null
+                      }
+                      onPendingOffsetConsumed={() => {
+                        setPendingRichOffset(null)
+                        setPendingRichItemId(null)
+                      }}
+                      onToggle={(id, checked) => updateItem(id, { checked })}
+                      onTextChange={(id, text) => updateItem(id, { text })}
+                      onFocusItem={(id) => {
+                        focusedItemId.current = id
+                      }}
+                      onKeyDown={itemKeyDown}
+                      onRichEnter={richItemEnter}
+                      onRichBackspaceEmpty={richItemBackspaceEmpty}
+                      onRichEditorReady={onRichInlineEditorReady}
+                      onMove={moveItem}
+                      onIndent={adjustItemIndent}
+                      onRemove={removeItem}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+              {(textEditMode === 'edit' || textEditMode === 'rich') && (
+                <button type="button" className="add-item" onClick={() => addItem()}>
+                  <Plus aria-hidden="true" /> {t('editor.checklist.addItem')}
+                </button>
               )}
             </div>
-          ) : textEditMode === 'rich' ? (
-            <RichBlockEditor
-              value={draft.contentRaw}
-              attachments={draft.attachments}
-              placeholder={t('editor.contentPlaceholder')}
-              aria-label={t('editor.contentAria')}
-              pendingOffset={pendingRichOffset}
-              onPendingOffsetConsumed={() => setPendingRichOffset(null)}
-              onChange={(contentRaw) =>
-                change((current) => ({ ...current, contentRaw }))
-              }
-              onEditorReady={(editor) => {
-                richBlockEditorRef.current = editor
-              }}
-            />
-          ) : (
-            <textarea
-              ref={bodyRef}
-              className="editor-body"
-              value={draft.contentRaw}
-              onChange={(event) =>
-                change((current) => ({ ...current, contentRaw: event.target.value }))
-              }
-              placeholder={t('editor.contentPlaceholder')}
-              aria-label={t('editor.contentAria')}
-            />
-          )
-        ) : (
-          <div
-            className={`checklist-editor${textEditMode === 'preview' ? ' preview-mode' : ''}${textEditMode === 'rich' ? ' rich-mode' : ''}`}
-            aria-label={textEditMode === 'preview' ? t('editor.previewAria') : undefined}
-            onClick={textEditMode === 'preview' ? editFromPreview : undefined}
-          >
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderItems}>
-              <SortableContext
-                items={draft.items.map((item) => item.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {draft.items.map((item, index) => (
-                  <SortableChecklistRow
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    itemCount={draft.items.length}
-                    previousIndent={index > 0 ? (draft.items[index - 1].indent ?? 0) : 0}
-                    mode={textEditMode}
-                    previewHtml={itemPreviewHtml[item.id] ?? item.textRendered}
-                    pendingOffset={
-                      pendingRichItemId === item.id ? pendingRichOffset : null
-                    }
-                    onPendingOffsetConsumed={() => {
-                      setPendingRichOffset(null)
-                      setPendingRichItemId(null)
-                    }}
-                    onToggle={(id, checked) => updateItem(id, { checked })}
-                    onTextChange={(id, text) => updateItem(id, { text })}
-                    onFocusItem={(id) => {
-                      focusedItemId.current = id
-                    }}
-                    onKeyDown={itemKeyDown}
-                    onRichEnter={richItemEnter}
-                    onRichBackspaceEmpty={richItemBackspaceEmpty}
-                    onRichEditorReady={onRichInlineEditorReady}
-                    onMove={moveItem}
-                    onIndent={adjustItemIndent}
-                    onRemove={removeItem}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-            {(textEditMode === 'edit' || textEditMode === 'rich') && (
-              <button type="button" className="add-item" onClick={() => addItem()}>
-                <Plus aria-hidden="true" /> {t('editor.checklist.addItem')}
-              </button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+        {formattingToolbar}
 
         <div className="editor-native-fields">
           <span className="editor-labels-caption" id="note-labels-caption">
@@ -1631,261 +1954,6 @@ export function NoteEditor({
                 <input type="file" onChange={(event) => void upload(event)} />
               </label>
             </Tooltip>
-            {(textEditMode === 'edit' || textEditMode === 'rich') && (
-              <div className="formatting-wrap" ref={formattingMenuRef}>
-                <Tooltip label={t('editor.toolbar.formatting')}>
-                  <button
-                    type="button"
-                    className={`icon-button${formattingMenuOpen ? ' selected-tool' : ''}`}
-                    onClick={() => setFormattingMenuOpen((open) => !open)}
-                    aria-label={t('editor.toolbar.formatting')}
-                    aria-haspopup="menu"
-                    aria-expanded={formattingMenuOpen}
-                  >
-                    <span className="formatting-toggle-glyph" aria-hidden="true">
-                      A
-                    </span>
-                  </button>
-                </Tooltip>
-                {formattingMenuOpen && (
-                  <div
-                    className="formatting-menu"
-                    role="menu"
-                    aria-label={t('editor.toolbar.formatting')}
-                  >
-                    {draft.type === 'TEXT' ? (
-                      <>
-                        <Tooltip label={t('editor.toolbar.heading1')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.heading1')}
-                            onClick={() =>
-                              runFormat(
-                                (s) => setHeadingLevel(s, 1),
-                                (editor) =>
-                                  editor.chain().focus().toggleHeading({ level: 1 }).run(),
-                              )
-                            }
-                          >
-                            <Heading1 aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.heading2')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.heading2')}
-                            onClick={() =>
-                              runFormat(
-                                (s) => setHeadingLevel(s, 2),
-                                (editor) =>
-                                  editor.chain().focus().toggleHeading({ level: 2 }).run(),
-                              )
-                            }
-                          >
-                            <Heading2 aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.normalText')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.normalText')}
-                            onClick={() =>
-                              runFormat(
-                                (s) => setHeadingLevel(s, 0),
-                                (editor) => editor.chain().focus().setParagraph().run(),
-                              )
-                            }
-                          >
-                            <Type aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.codeBlock')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.codeBlock')}
-                            onClick={() =>
-                              runFormat(insertFencedCode, (editor) =>
-                                editor.chain().focus().toggleCodeBlock().run(),
-                              )
-                            }
-                          >
-                            <Code2 aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <span className="formatting-menu-separator" aria-hidden="true" />
-                        <Tooltip label={t('editor.toolbar.bold')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.bold')}
-                            onClick={() =>
-                              runFormat(toggleBold, (editor) =>
-                                editor.chain().focus().toggleBold().run(),
-                              )
-                            }
-                          >
-                            <Bold aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.italic')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.italic')}
-                            onClick={() =>
-                              runFormat(toggleItalic, (editor) =>
-                                editor.chain().focus().toggleItalic().run(),
-                              )
-                            }
-                          >
-                            <Italic aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.underline')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.underline')}
-                            onClick={() =>
-                              runFormat(toggleUnderline, (editor) =>
-                                editor.chain().focus().toggleUnderline().run(),
-                              )
-                            }
-                          >
-                            <Underline aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.strikethrough')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.strikethrough')}
-                            onClick={() =>
-                              runFormat(toggleStrikethrough, (editor) =>
-                                editor.chain().focus().toggleStrike().run(),
-                              )
-                            }
-                          >
-                            <Strikethrough aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <span className="formatting-menu-separator" aria-hidden="true" />
-                        <Tooltip label={t('editor.toolbar.orderedList')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.orderedList')}
-                            onClick={() =>
-                              runFormat(
-                                (s) => toggleList(s, 'ordered'),
-                                (editor) =>
-                                  editor.chain().focus().toggleOrderedList().run(),
-                              )
-                            }
-                          >
-                            <ListOrdered aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.unorderedList')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.unorderedList')}
-                            onClick={() =>
-                              runFormat(
-                                (s) => toggleList(s, 'unordered'),
-                                (editor) =>
-                                  editor.chain().focus().toggleBulletList().run(),
-                              )
-                            }
-                          >
-                            <List aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <span className="formatting-menu-separator" aria-hidden="true" />
-                        <Tooltip label={t('editor.toolbar.horizontalLine')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.horizontalLine')}
-                            onClick={() =>
-                              runFormat(insertHorizontalRule, (editor) =>
-                                editor.chain().focus().setHorizontalRule().run(),
-                              )
-                            }
-                          >
-                            <Minus aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                      </>
-                    ) : (
-                      <>
-                        <Tooltip label={t('editor.toolbar.bold')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.bold')}
-                            onClick={() =>
-                              runFormat(toggleBold, (editor) =>
-                                editor.chain().focus().toggleBold().run(),
-                              )
-                            }
-                          >
-                            <Bold aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.italic')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.italic')}
-                            onClick={() =>
-                              runFormat(toggleItalic, (editor) =>
-                                editor.chain().focus().toggleItalic().run(),
-                              )
-                            }
-                          >
-                            <Italic aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.strikethrough')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.strikethrough')}
-                            onClick={() =>
-                              runFormat(toggleStrikethrough, (editor) =>
-                                editor.chain().focus().toggleStrike().run(),
-                              )
-                            }
-                          >
-                            <Strikethrough aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={t('editor.toolbar.inlineCode')}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            aria-label={t('editor.toolbar.inlineCode')}
-                            onClick={() =>
-                              runFormat(toggleInlineCode, (editor) =>
-                                editor.chain().focus().toggleCode().run(),
-                              )
-                            }
-                          >
-                            <Code aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           <div className="editor-tools editor-tools-right">
             <Tooltip label={draft.archived ? t('editor.toolbar.restore') : t('editor.toolbar.archive')}>

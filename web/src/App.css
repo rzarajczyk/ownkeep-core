@@ -140,6 +140,7 @@ svg {
   transform: translate(-50%, 0);
 }
 .formatting-menu .tooltip-anchor,
+.formatting-toolbar .tooltip-anchor,
 .color-picker-menu .tooltip-anchor {
   display: inline-flex;
 }
@@ -1377,7 +1378,17 @@ svg {
   font-size: 1.35rem;
   font-weight: 700;
 }
+.editor-title:focus-visible {
+  outline: none;
+}
 .editor-title::placeholder, .editor-body::placeholder { color: #888b87; }
+.editor-content-area {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
 .editor-markdown-preview {
   flex: 1;
   min-height: 260px;
@@ -1401,7 +1412,7 @@ svg {
 }
 .editor-body {
   width: calc(100% - 40px);
-  min-height: 260px;
+  min-height: 0;
   flex: 1;
   margin: 0 20px;
   padding: 8px 0 18px;
@@ -1413,9 +1424,12 @@ svg {
   font-size: 0.96rem;
   line-height: 1.6;
 }
+.editor-body:focus-visible {
+  outline: none;
+}
 .rich-block-editor-host {
   width: calc(100% - 24px);
-  min-height: 260px;
+  min-height: 0;
   flex: 1;
   margin: 0 12px 12px;
   padding: 8px 8px 18px;
@@ -1488,32 +1502,25 @@ svg {
 .checklist-editor.rich-mode .rich-inline-editor-host {
   padding-top: 6px;
 }
-.formatting-toggle-glyph {
-  font-size: 0.95rem;
-  font-weight: 750;
-  font-family: Georgia, "Times New Roman", serif;
-  line-height: 1;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.formatting-wrap { position: relative; }
-.formatting-menu {
-  position: absolute;
-  z-index: 6;
-  left: 0;
-  bottom: calc(100% + 8px);
+.formatting-toolbar {
+  position: fixed;
+  z-index: 20;
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   gap: 2px;
+  max-width: calc(100vw - 32px);
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #fff;
   box-shadow: var(--shadow);
+  overflow-x: auto;
+  transform: translateX(-50%);
+  pointer-events: auto;
 }
-.formatting-menu button {
+.formatting-toolbar button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1529,15 +1536,15 @@ svg {
   font-size: 0.72rem;
   font-weight: 700;
 }
-.formatting-menu button:hover { background: #f3f2ec; }
-.formatting-menu button svg { width: 15px; height: 15px; }
+.formatting-toolbar button:hover { background: #f3f2ec; }
+.formatting-toolbar button svg { width: 15px; height: 15px; }
 .formatting-menu-separator {
   width: 1px;
   height: 18px;
   margin: 0 4px;
   background: rgb(65 67 63 / 18%);
 }
-.checklist-editor { min-height: 210px; padding: 10px 16px 18px 12px; overflow: auto; }
+.checklist-editor { min-height: 0; flex: 1; padding: 10px 16px 18px 12px; overflow: auto; }
 .checklist-editor.preview-mode {
   margin: 0 12px 8px;
   padding: 9px 4px 17px 0;
@@ -1804,6 +1811,11 @@ svg {
 .import-file { display: grid; gap: 8px; margin: 22px 0 6px; font-size: 0.82rem; font-weight: 700; }
 .import-file input { padding: 12px; border: 1px dashed #aaa99f; border-radius: 10px; background: #f8f7f3; font-weight: 400; }
 .import-progress, .import-job { display: grid; gap: 9px; margin-top: 20px; }
+.import-progress > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .import-progress progress, .import-job > progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .import-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
 .import-panel .inline-error { margin: 14px 0 0; font-size: 0.8rem; }

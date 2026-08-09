@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 *.local
+run-local.sh
 
 # OwnKeep runtime data
 /attachments/

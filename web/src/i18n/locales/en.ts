@@ -103,10 +103,11 @@ export default {
   },
 
   import: {
+    eyebrow: 'Import notes',
     title: 'Import from Google Keep',
     description:
-      'Notes are decrypted from the Takeout ZIP in your browser, then encrypted before upload. The server never sees plaintext import content.',
-    chooseFile: 'Choose Takeout ZIP',
+      'Notes are extracted from the Google Takeout ZIP in your browser, then encrypted before upload. The server never sees plaintext import content.',
+    chooseFile: 'Google Keep Takeout ZIP',
     cancel: 'Cancel',
     submit: 'Import',
     submitting: 'Importing…',

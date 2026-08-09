@@ -23,7 +23,7 @@ describe('language preference', () => {
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('pl')
     expect(readLanguagePreference()).toBe('pl')
     await i18n.changeLanguage('pl')
-    expect(i18n.t('settings.title')).toBe('Ustawienia użytkownika')
+    expect(i18n.t('settings.title')).toBe('Ustawienia konta')
     expect(document.documentElement.lang).toBe('pl')
   })
 

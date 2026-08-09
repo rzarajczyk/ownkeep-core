@@ -61,7 +61,7 @@ describe('UserSettingsDialog account deletion', () => {
     await browser.click(screen.getByRole('button', { name: 'Language' }))
     expect(screen.getByText(/choose the app language/i)).toBeVisible()
     await browser.selectOptions(screen.getByLabelText('Language'), 'pl')
-    expect(screen.getByRole('heading', { name: 'Ustawienia użytkownika' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Ustawienia konta' })).toBeVisible()
     expect(screen.getByLabelText('Język')).toHaveValue('pl')
   })
 
