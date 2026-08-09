@@ -1,4 +1,4 @@
-# OwnKeep Core — self-hosted notes app (Apache-2.0).
+# OwnKeep Core — self-hosted notes app (Elastic-2.0).
 #
 # Quick start:
 #   curl -fsSLO https://raw.githubusercontent.com/rzarajczyk/ownkeep-core/main/docker-compose.yaml

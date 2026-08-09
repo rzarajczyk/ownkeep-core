@@ -1,6 +1,6 @@
 # OwnKeep Core
 
-Self-hosted, open-source notes app — text and checklist notes, labels, pinning,
+Self-hosted, source-available notes app — text and checklist notes, labels, pinning,
 attachments, search, Google Keep import, and multi-user accounts. A small Google
 Keep-style alternative you run with Docker.
 
@@ -18,8 +18,11 @@ YOU HAVE BEEN WARNED!
 
 ---
 
-**License:** [Apache License 2.0](LICENSE). The OwnKeep name and logos are
-trademarks and are **not** covered by the code license (see [NOTICE](NOTICE)).
+**License:** [Elastic License 2.0](LICENSE) (`Elastic-2.0`). Self-hosting,
+including internal business use, is permitted. Providing third parties access to
+a substantial set of OwnKeep's functionality as a hosted or managed service is
+not. The OwnKeep name and logos are trademarks and are **not** covered by the
+code license (see [NOTICE](NOTICE)).
 
 **Stack:** React SPA + Kotlin/Spring Boot API in a single container image ·
 PostgreSQL (bring your own, or run via Compose)

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in **ownkeep-core** — the open-source
+Guidance for AI coding agents working in **ownkeep-core** — the source-available
 OwnKeep notes app (React SPA + Kotlin/Spring Boot API, single Docker image).
 
 ## Project overview
@@ -149,4 +149,5 @@ strikethrough, OWASP sanitization. Client preview uses `POST /markdown/preview`.
 
 ## License
 
-Apache License 2.0. The OwnKeep name and logos are trademarks (see [NOTICE](NOTICE)).
+Elastic License 2.0 (`Elastic-2.0`). OwnKeep is source-available, not OSI
+open-source. The OwnKeep name and logos are trademarks (see [NOTICE](NOTICE)).
