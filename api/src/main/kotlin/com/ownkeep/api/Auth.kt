@@ -19,6 +19,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -194,6 +195,9 @@ class AdminBootstrapRunner(
     override fun run(args: ApplicationArguments) {
         require(properties.tokenTtl.isNegative.not() && properties.tokenTtl.isZero.not()) {
             "ownkeep.token-ttl must be positive"
+        }
+        require(properties.deletedUserRetention.isNegative.not() && properties.deletedUserRetention.isZero.not()) {
+            "ownkeep.deleted-user-retention must be positive"
         }
         require(properties.maxSyncLimit > 0) { "ownkeep.max-sync-limit must be positive" }
         require(properties.loginRateLimit.maxAttemptsPerIp > 0) {
@@ -617,7 +621,10 @@ class AuthController(
 }
 
 @RestController
-class MeController(private val authService: AuthService) {
+class MeController(
+    private val authService: AuthService,
+    private val userManagementService: UserManagementService,
+) {
     @GetMapping("/me")
     fun me(authentication: UsernamePasswordAuthenticationToken): MeResponse {
         val principal = authentication.principal as OwnKeepPrincipal
@@ -649,6 +656,16 @@ class MeController(private val authService: AuthService) {
     ): ResponseEntity<Void> {
         val principal = authentication.principal as OwnKeepPrincipal
         authService.changePassword(principal.userId, request)
+        return ResponseEntity.noContent().build()
+    }
+
+    @DeleteMapping("/me")
+    fun deleteAccount(
+        authentication: UsernamePasswordAuthenticationToken,
+        @Valid @RequestBody request: DeleteAccountRequest,
+    ): ResponseEntity<Void> {
+        val principal = authentication.principal as OwnKeepPrincipal
+        userManagementService.softDeleteOwnAccount(principal.userId, request)
         return ResponseEntity.noContent().build()
     }
 }

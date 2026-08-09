@@ -13,6 +13,10 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import {
+  DELETED_USER_RETENTION_DAYS,
+  softDeleteUserConfirmation,
+} from './accountRetention'
 import { api, ApiError } from './api'
 import type { ManagedUser, User } from './types'
 import { errorMessage } from './utils'
@@ -38,6 +42,31 @@ function sortUsers(users: ManagedUser[]) {
   )
 }
 
+function permanentDeletionDeadline(deletedAt: string | null | undefined) {
+  if (!deletedAt) return null
+  const deletedAtTime = Date.parse(deletedAt)
+  if (Number.isNaN(deletedAtTime)) return null
+  return new Date(deletedAtTime + DELETED_USER_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+}
+
+function permanentDeletionStatus(deletedAt: string | null | undefined, now: number) {
+  const deadline = permanentDeletionDeadline(deletedAt)
+  if (!deadline) return null
+  const remaining = deadline.getTime() - now
+  const calendarDate = deadline.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  if (remaining <= 0) return `Due for permanent deletion on ${calendarDate}.`
+  const hours = Math.ceil(remaining / (60 * 60 * 1000))
+  if (hours < 24) {
+    return `Permanently deletes in ${hours} ${hours === 1 ? 'hour' : 'hours'} on ${calendarDate}.`
+  }
+  const days = Math.ceil(hours / 24)
+  return `Permanently deletes in ${days} ${days === 1 ? 'day' : 'days'} on ${calendarDate}.`
+}
+
 export function UserManagementDialog({ currentUser, onClose }: UserManagementDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const emailId = useId()
@@ -61,6 +90,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     temporaryPassword: string
   } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
   const filteredUsers = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -76,6 +106,11 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     const dialog = dialogRef.current
     dialog?.showModal()
     return () => dialog?.close()
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -118,7 +153,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
   }
 
   async function deleteUser(user: ManagedUser) {
-    if (!window.confirm(`Delete user “${user.email}”? They will no longer be able to sign in.`)) return
+    if (!window.confirm(softDeleteUserConfirmation(user.email))) return
     setBusyId(user.id)
     setError('')
     setStatus('')
@@ -142,7 +177,8 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
   }
 
   async function restoreUser(user: ManagedUser) {
-    if (!user.canRestore) return
+    const deadline = permanentDeletionDeadline(user.deletedAt)
+    if (!user.canRestore || (deadline && deadline.getTime() <= Date.now())) return
     setBusyId(user.id)
     setError('')
     setStatus('')
@@ -169,7 +205,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
 
   async function permanentlyDeleteUser(user: ManagedUser) {
     const confirmed = window.confirm(
-      `Permanently delete “${user.email}” and all of their encrypted data?\n\nThis is irreversible and cannot be undone.`,
+      `Permanently delete “${user.email}” and all of their encrypted data now?\n\nThis skips any remaining ${DELETED_USER_RETENTION_DAYS}-day retention period. It is irreversible and cannot be restored.`,
     )
     if (!confirmed) return
     setBusyId(user.id)
@@ -236,8 +272,17 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     const isCurrentUser = user.id === currentUser.id
     const canManageActive = user.enabled && !isCurrentUser && user.role !== 'ADMIN'
     const restoreExplanationId = `restore-explanation-${user.id}`
+    const deletionStatusId = `deletion-status-${user.id}`
     const showResend =
       user.enabled && !user.emailVerified && !isCurrentUser && user.role !== 'ADMIN'
+    const deletionStatus = permanentDeletionStatus(user.deletedAt, now)
+    const deletionDeadline = permanentDeletionDeadline(user.deletedAt)
+    const restoreAllowed =
+      user.canRestore && (!deletionDeadline || deletionDeadline.getTime() > now)
+    const restorationNote =
+      deletionDeadline && deletionDeadline.getTime() <= now
+        ? 'It can no longer be restored.'
+        : 'Restore is available only until then.'
 
     return (
       <li key={user.id} className={user.enabled ? undefined : 'user-row-deleted'}>
@@ -263,6 +308,11 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
             {!user.enabled && !user.canRestore && (
               <span id={restoreExplanationId} className="user-restore-explanation">
                 Restore unavailable: this account has no recovery key.
+              </span>
+            )}
+            {!user.enabled && deletionStatus && (
+              <span id={deletionStatusId} className="user-deletion-countdown">
+                {deletionStatus} {restorationNote}
               </span>
             )}
           </div>
@@ -311,9 +361,25 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
             <button
               type="button"
               className="secondary-button"
-              disabled={busyId === user.id || !user.canRestore}
-              aria-describedby={!user.canRestore ? restoreExplanationId : undefined}
-              title={!user.canRestore ? 'This account has no recovery key and cannot be restored.' : undefined}
+              disabled={busyId === user.id || !restoreAllowed}
+              aria-describedby={
+                !restoreAllowed
+                  ? !user.canRestore
+                    ? restoreExplanationId
+                    : deletionStatus
+                      ? deletionStatusId
+                      : undefined
+                  : undefined
+              }
+              title={
+                !user.canRestore
+                  ? 'This account has no recovery key and cannot be restored.'
+                  : !restoreAllowed
+                    ? 'This account is past its permanent deletion date and cannot be restored.'
+                  : deletionDeadline
+                    ? `Restore before ${deletionDeadline.toLocaleDateString()}.`
+                    : undefined
+              }
               onClick={() => void restoreUser(user)}
             >
               {busyId === user.id ? <LoaderCircle className="spin" /> : <RotateCcw />}

@@ -24,6 +24,10 @@ interface UserRepository : JpaRepository<UserEntity, Long> {
 
     fun existsByRoleAndEnabledTrue(role: UserRole): Boolean
 
+    fun existsByRoleAndEnabledTrueAndIdNot(role: UserRole, id: Long): Boolean
+
+    fun findByEnabledFalseAndDeletedAtLessThanEqual(cutoff: Instant): List<UserEntity>
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from UserEntity u where u.id = :id")
     fun findForUpdateById(@Param("id") id: Long): UserEntity?

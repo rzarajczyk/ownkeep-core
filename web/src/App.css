@@ -1845,6 +1845,55 @@ svg {
   font-size: 1.05rem;
 }
 .settings-form h3 svg { width: 18px; height: 18px; }
+.settings-dialog { width: min(680px, calc(100vw - 30px)); }
+.settings-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 26px; }
+.settings-section-nav {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding-top: 10px;
+}
+.settings-section-nav button {
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-section-nav button:hover { color: var(--ink); background: #f4f2ed; }
+.settings-section-nav button.active { color: var(--accent); background: rgb(31 85 70 / 10%); }
+.danger-zone {
+  margin-top: 8px;
+  padding: 18px;
+  border: 1px solid #e2d2ca;
+  border-radius: 12px;
+  background: #fcf8f6;
+}
+.danger-zone h3 { margin-top: 4px; color: #794338; }
+.danger-zone p { margin: 0; color: var(--muted); line-height: 1.55; }
+.danger-zone .import-actions { margin-top: 14px; }
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 15px;
+  border: 1px solid #b65348;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--danger);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.danger-button:hover { filter: brightness(0.94); }
+.danger-button:disabled { cursor: not-allowed; opacity: 0.65; }
 
 .users-dialog { width: min(720px, calc(100vw - 30px)); max-height: min(760px, calc(100dvh - 40px)); }
 .users-dialog .import-panel {
@@ -2043,6 +2092,12 @@ svg {
   font-size: 0.68rem;
   line-height: 1.35;
 }
+.user-deletion-countdown {
+  max-width: 330px;
+  color: #856c61;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
 .user-actions {
   display: flex;
   flex: 0 0 auto;
@@ -2106,7 +2161,6 @@ svg {
   cursor: pointer;
 }
 .restored-credentials-dismiss:hover { text-decoration: underline; }
-.danger-button { color: var(--danger); }
 .users-form-view {
   display: flex;
   flex: 1 1 auto;
@@ -2268,6 +2322,12 @@ svg {
   .toast { right: 16px; bottom: 78px; }
   .import-dialog { width: calc(100vw - 20px); }
   .import-panel { padding: 20px; }
+  .settings-layout { grid-template-columns: 1fr; gap: 14px; }
+  .settings-section-nav {
+    grid-template-columns: repeat(2, 1fr);
+    padding-top: 0;
+  }
+  .settings-section-nav button { text-align: center; }
   .users-dialog .import-panel { min-height: calc(100dvh - 20px); max-height: calc(100dvh - 20px); }
   .users-toolbar { margin-top: 18px; }
   .users-toolbar .primary-button { padding: 0 11px; }

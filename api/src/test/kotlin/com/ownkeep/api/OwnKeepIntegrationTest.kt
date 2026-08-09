@@ -60,6 +60,9 @@ class OwnKeepIntegrationTest {
     @Autowired
     lateinit var attachmentBlobStore: AttachmentBlobStore
 
+    @Autowired
+    lateinit var userManagementService: UserManagementService
+
     @org.junit.jupiter.api.BeforeEach
     fun ensureBobUser() {
         val existing = userRepository.findByEmail("bob@example.com")
@@ -77,6 +80,7 @@ class OwnKeepIntegrationTest {
             )
         } else {
             existing.enabled = true
+            existing.deletedAt = null
             existing.role = UserRole.USER
             existing.recoveryPending = false
             existing.passwordHash = passwordEncoder.encode("bob-password")
@@ -90,6 +94,8 @@ class OwnKeepIntegrationTest {
             userRepository.save(existing)
         }
         userRepository.findByEmail("alice@example.com")?.let { alice ->
+            alice.enabled = true
+            alice.deletedAt = null
             alice.passwordHash = passwordEncoder.encode("alice-password")
             alice.recoveryPending = false
             alice.kdfSalt = null
@@ -328,9 +334,11 @@ class OwnKeepIntegrationTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.enabled").value(false))
             .andExpect(jsonPath("$.canRestore").value(true))
+            .andExpect(jsonPath("$.deletedAt").isString)
         mockMvc.perform(delete("/users/${deletedZ.id}").header("Authorization", "Bearer $adminToken"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.canRestore").value(false))
+            .andExpect(jsonPath("$.deletedAt").isString)
 
         val listResult = mockMvc.perform(get("/users").header("Authorization", "Bearer $adminToken"))
             .andExpect(status().isOk)
@@ -370,6 +378,77 @@ class OwnKeepIntegrationTest {
             .andExpect(jsonPath("$.user.enabled").value(true))
             .andExpect(jsonPath("$.user.recoveryPending").value(true))
             .andExpect(jsonPath("$.user.canRestore").value(false))
+        assertThat(userRepository.findById(deletedA.id).orElseThrow().deletedAt).isNull()
+    }
+
+    @Test
+    fun `self delete soft-deletes account and rejects wrong password and last admin`() {
+        val adminToken = login("alice@example.com", "alice-password")
+        val suffix = UUID.randomUUID().toString().take(8)
+        val user = createUser(adminToken, "self-delete-$suffix@example.com")
+        val userToken = login(user.email, TEST_USER_PASSWORD)
+        initializeVault(userToken, 51)
+
+        mockMvc.perform(
+            delete("/me")
+                .header("Authorization", "Bearer $userToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"password":"wrong-password"}"""),
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("invalid_credentials"))
+
+        mockMvc.perform(
+            delete("/me")
+                .header("Authorization", "Bearer $userToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"password":"$TEST_USER_PASSWORD"}"""),
+        ).andExpect(status().isNoContent)
+
+        val deleted = userRepository.findById(user.id).orElseThrow()
+        assertThat(deleted.enabled).isFalse()
+        assertThat(deleted.deletedAt).isNotNull()
+
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $userToken"))
+            .andExpect(status().isUnauthorized)
+        mockMvc.perform(
+            post("/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"email":"${user.email}","password":"$TEST_USER_PASSWORD"}"""),
+        )
+            .andExpect(status().isUnauthorized)
+
+        mockMvc.perform(
+            delete("/me")
+                .header("Authorization", "Bearer $adminToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"password":"alice-password"}"""),
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("cannot_delete_last_admin"))
+    }
+
+    @Test
+    fun `purge removes soft-deleted users past retention and keeps recent ones`() {
+        val adminToken = login("alice@example.com", "alice-password")
+        val suffix = UUID.randomUUID().toString().take(8)
+        val expired = createUser(adminToken, "purge-expired-$suffix@example.com")
+        val recent = createUser(adminToken, "purge-recent-$suffix@example.com")
+        mockMvc.perform(delete("/users/${expired.id}").header("Authorization", "Bearer $adminToken"))
+            .andExpect(status().isOk)
+        mockMvc.perform(delete("/users/${recent.id}").header("Authorization", "Bearer $adminToken"))
+            .andExpect(status().isOk)
+
+        val expiredUser = userRepository.findById(expired.id).orElseThrow()
+        expiredUser.deletedAt = java.time.Instant.now().minus(java.time.Duration.ofDays(61))
+        userRepository.save(expiredUser)
+
+        val purged = userManagementService.purgeExpiredDeletedUsers(
+            java.time.Instant.now().minus(java.time.Duration.ofDays(60)),
+        )
+        assertThat(purged).isGreaterThanOrEqualTo(1)
+        assertThat(userRepository.findById(expired.id)).isEmpty
+        assertThat(userRepository.findById(recent.id)).isPresent
     }
 
     @Test

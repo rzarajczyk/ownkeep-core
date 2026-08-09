@@ -50,6 +50,7 @@ ownkeep:
   admin-email: ${OWNKEEP_ADMIN_EMAIL:}
   admin-password: ${OWNKEEP_ADMIN_PASSWORD:}
   token-ttl: ${OWNKEEP_TOKEN_TTL:30d}
+  deleted-user-retention: ${OWNKEEP_DELETED_USER_RETENTION:60d}
   max-sync-limit: ${OWNKEEP_MAX_SYNC_LIMIT:200}
   email-verification-required: ${OWNKEEP_EMAIL_VERIFICATION_REQUIRED:false}
   public-base-url: ${OWNKEEP_PUBLIC_BASE_URL:}

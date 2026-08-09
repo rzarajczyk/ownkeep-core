@@ -25,6 +25,7 @@ vi.mock('./api', () => ({
     updateNote: vi.fn(),
     deleteNote: vi.fn(),
     changePassword: vi.fn(),
+    deleteAccount: vi.fn(),
     listUsers: vi.fn(),
     createUser: vi.fn(),
     deleteUser: vi.fn(),

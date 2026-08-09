@@ -35,6 +35,7 @@ export interface ManagedUser {
   emailVerified: boolean
   recoveryPending: boolean
   canRestore: boolean
+  deletedAt?: string | null
 }
 
 export interface AuthSession {

@@ -39,6 +39,7 @@ const managedUsers: ManagedUser[] = [
     emailVerified: true,
     recoveryPending: false,
     canRestore: true,
+    deletedAt: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     id: 4,
@@ -48,6 +49,7 @@ const managedUsers: ManagedUser[] = [
     emailVerified: true,
     recoveryPending: false,
     canRestore: false,
+    deletedAt: new Date(Date.now() - 61 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     id: 2,
@@ -133,12 +135,15 @@ describe('UserManagementDialog deleted users', () => {
 
   it('moves a soft-deleted account into the deleted group instead of removing it', async () => {
     const browser = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderDialog()
     await screen.findByText('active@example.com')
 
     await browser.click(screen.getByRole('button', { name: 'Delete active@example.com' }))
 
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/disabled immediately[\s\S]*restore code[\s\S]*60 days[\s\S]*cannot be restored/i),
+    )
     await waitFor(() => expect(api.deleteUser).toHaveBeenCalledWith(2))
     const deletedGroup = screen.getByRole('heading', { name: 'Deleted users' }).closest('section')
     expect(within(deletedGroup!).getByText('active@example.com')).toBeInTheDocument()
@@ -180,9 +185,19 @@ describe('UserManagementDialog deleted users', () => {
 
     await browser.click(screen.getByRole('button', { name: 'Permanently delete deleted@example.com' }))
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/irreversible/i))
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/skips.*retention.*irreversible/i))
     await waitFor(() => expect(api.permanentlyDeleteUser).toHaveBeenCalledWith(3))
     expect(screen.queryByText('deleted@example.com')).not.toBeInTheDocument()
+  })
+
+  it('shows the retention countdown and permanent deletion date for deleted accounts', async () => {
+    renderDialog()
+
+    await screen.findByText('deleted@example.com')
+
+    const row = screen.getByText('deleted@example.com').closest('li')
+    expect(within(row!).getByText(/permanently deletes in 42 days/i)).toBeVisible()
+    expect(within(row!).getByText(/restore is available only until then/i)).toBeVisible()
   })
 
   it('shows verification status and resends for pending users', async () => {

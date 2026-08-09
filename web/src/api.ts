@@ -152,6 +152,13 @@ class ApiClient {
     })
   }
 
+  deleteAccount(password: string) {
+    return this.request<void>('/me', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    })
+  }
+
   listUsers(signal?: AbortSignal) {
     return this.request<ManagedUser[]>('/users', { signal })
   }

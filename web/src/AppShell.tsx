@@ -769,6 +769,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         <UserSettingsDialog
           onClose={() => setSettingsOpen(false)}
           onPasswordChanged={onSessionEnded}
+          onAccountDeleted={onSessionEnded}
         />
       )}
       {usersOpen && (

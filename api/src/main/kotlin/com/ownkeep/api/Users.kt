@@ -4,11 +4,14 @@ import com.ownkeep.api.storage.AttachmentBlobStore
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -18,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.time.Clock
 import java.time.Instant
@@ -31,6 +35,7 @@ data class UserSummaryResponse(
     val emailVerified: Boolean,
     val recoveryPending: Boolean,
     val canRestore: Boolean,
+    val deletedAt: Instant? = null,
 )
 
 data class RestoreUserResponse(
@@ -51,6 +56,12 @@ data class ResetPasswordRequest(
     @field:NotBlank
     @field:Size(max = 1024)
     val newPassword: String,
+)
+
+data class DeleteAccountRequest(
+    @field:NotBlank
+    @field:Size(max = 1024)
+    val password: String,
 )
 
 @Service
@@ -95,13 +106,31 @@ class UserManagementService(
         if (user.role == UserRole.ADMIN) {
             throw ApiException(HttpStatus.BAD_REQUEST, "cannot_delete_admin", "The admin account cannot be deleted")
         }
-        val now = clock.instant()
-        user.enabled = false
-        user.recoveryPending = false
-        user.updatedAt = now
-        val deleted = userRepository.save(user)
-        authTokenRepository.revokeAllForUser(requireNotNull(user.id), now)
-        return deleted.toSummary()
+        return markUserDeleted(user).toSummary()
+    }
+
+    @Transactional
+    fun softDeleteOwnAccount(userId: Long, request: DeleteAccountRequest) {
+        val user = userRepository.findForUpdateById(userId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        if (!user.enabled) {
+            throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        }
+        val passwordWithinLimit = request.password.toByteArray(StandardCharsets.UTF_8).size <= 72
+        val matches = passwordWithinLimit && runCatching {
+            passwordEncoder.matches(request.password, user.passwordHash)
+        }.getOrDefault(false)
+        if (!matches) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_credentials", "Current password is incorrect")
+        }
+        if (user.role == UserRole.ADMIN && !userRepository.existsByRoleAndEnabledTrueAndIdNot(UserRole.ADMIN, userId)) {
+            throw ApiException(
+                HttpStatus.BAD_REQUEST,
+                "cannot_delete_last_admin",
+                "Cannot delete the last admin account",
+            )
+        }
+        markUserDeleted(user)
     }
 
     @Transactional
@@ -110,9 +139,6 @@ class UserManagementService(
             ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
         if (user.enabled) {
             throw ApiException(HttpStatus.CONFLICT, "user_not_deleted", "User is not deleted")
-        }
-        if (user.role != UserRole.USER) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "cannot_restore_admin", "Admin users cannot be restored")
         }
         if (!user.vaultInitialized) {
             throw ApiException(
@@ -126,6 +152,7 @@ class UserManagementService(
         val now = clock.instant()
         user.passwordHash = passwordEncoder.encode(temporaryPassword)
         user.enabled = true
+        user.deletedAt = null
         user.recoveryPending = true
         user.wrappedVaultKey = null
         user.updatedAt = now
@@ -141,18 +168,25 @@ class UserManagementService(
         if (user.enabled) {
             throw ApiException(HttpStatus.CONFLICT, "user_not_deleted", "User must be deleted first")
         }
-        if (user.role != UserRole.USER) {
-            throw ApiException(
-                HttpStatus.BAD_REQUEST,
-                "cannot_delete_admin",
-                "Admin users cannot be permanently deleted",
-            )
-        }
 
         val userId = requireNotNull(user.id)
         val storagePaths = attachmentRepository.findStoragePathsByUserId(userId)
         userRepository.delete(user)
         attachmentBlobStore.deleteAfterCommit(storagePaths)
+    }
+
+    @Transactional
+    fun purgeExpiredDeletedUsers(retentionCutoff: Instant): Int {
+        val expired = userRepository.findByEnabledFalseAndDeletedAtLessThanEqual(retentionCutoff)
+        var purged = 0
+        for (user in expired) {
+            val userId = requireNotNull(user.id)
+            val storagePaths = attachmentRepository.findStoragePathsByUserId(userId)
+            userRepository.delete(user)
+            attachmentBlobStore.deleteAfterCommit(storagePaths)
+            purged += 1
+        }
+        return purged
     }
 
     @Transactional
@@ -183,6 +217,17 @@ class UserManagementService(
         emailVerificationService.resendForUser(targetId)
     }
 
+    private fun markUserDeleted(user: UserEntity): UserEntity {
+        val now = clock.instant()
+        user.enabled = false
+        user.deletedAt = now
+        user.recoveryPending = false
+        user.updatedAt = now
+        val deleted = userRepository.save(user)
+        authTokenRepository.revokeAllForUser(requireNotNull(user.id), now)
+        return deleted
+    }
+
     private fun generateTemporaryPassword(): String =
         ByteArray(32)
             .also(secureRandom::nextBytes)
@@ -197,7 +242,28 @@ class UserManagementService(
             emailVerified = emailVerified,
             recoveryPending = recoveryPending,
             canRestore = !enabled && vaultInitialized,
+            deletedAt = deletedAt,
         )
+}
+
+@Component
+class DeletedUserPurgeScheduler(
+    private val properties: OwnKeepProperties,
+    private val userManagementService: UserManagementService,
+) {
+    private val log = LoggerFactory.getLogger(javaClass)
+    private val clock: Clock = Clock.systemUTC()
+
+    @Scheduled(cron = "0 15 3 * * *")
+    fun purgeExpiredDeletedUsers() {
+        val retention = properties.deletedUserRetention
+        if (retention.isNegative || retention.isZero) return
+        val cutoff = clock.instant().minus(retention)
+        val purged = userManagementService.purgeExpiredDeletedUsers(cutoff)
+        if (purged > 0) {
+            log.info("Permanently deleted {} soft-deleted account(s) past retention", purged)
+        }
+    }
 }
 
 @RestController

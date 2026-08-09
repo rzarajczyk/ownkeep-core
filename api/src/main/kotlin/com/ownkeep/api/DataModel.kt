@@ -28,6 +28,8 @@ class UserEntity(
     var passwordHash: String = "",
     @Column(nullable = false)
     var enabled: Boolean = true,
+    @Column(name = "deleted_at")
+    var deletedAt: Instant? = null,
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var role: UserRole = UserRole.USER,
