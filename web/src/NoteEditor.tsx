@@ -39,7 +39,6 @@ import {
   ListOrdered,
   ListX,
   LoaderCircle,
-  Minus,
   Palette,
   Paperclip,
   Pencil,
@@ -76,8 +75,14 @@ import {
   inferAttachmentKind,
 } from './crypto/attachmentCodec'
 import {
+  domSelectionRect,
+  placeFormattingToolbar,
+  textControlSelectionRect,
+  type FormattingSelectionAnchor,
+  type FormattingToolbarPosition,
+} from './formattingToolbarLayout'
+import {
   insertFencedCode,
-  insertHorizontalRule,
   setHeadingLevel,
   toggleBold,
   toggleInlineCode,
@@ -99,16 +104,6 @@ import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD
 import { useVault } from './vault/VaultContext'
 
 type TextEditMode = 'edit' | 'rich' | 'preview'
-
-type FormattingSelectionAnchor = {
-  top: number
-  centerX: number
-}
-
-type FormattingToolbarPosition = {
-  top: number
-  left: number
-}
 
 interface NoteEditorProps {
   note: Note
@@ -149,98 +144,6 @@ function clearRenderedPreview(note: Note): Note {
     items: note.items.map((item) =>
       item.textRendered ? { ...item, textRendered: '' } : item,
     ),
-  }
-}
-
-function textControlSelectionRect(
-  control: HTMLInputElement | HTMLTextAreaElement,
-): DOMRect | null {
-  const start = control.selectionStart
-  const end = control.selectionEnd
-  if (start === null || end === null || start === end) return null
-
-  const controlRect = control.getBoundingClientRect()
-  const styles = window.getComputedStyle(control)
-  const mirror = document.createElement('div')
-  const marker = document.createElement('span')
-  Object.assign(mirror.style, {
-    position: 'fixed',
-    top: `${controlRect.top - control.scrollTop}px`,
-    left: `${controlRect.left - control.scrollLeft}px`,
-    width: `${control.clientWidth}px`,
-    boxSizing: 'border-box',
-    padding: styles.padding,
-    border: styles.border,
-    font: styles.font,
-    letterSpacing: styles.letterSpacing,
-    lineHeight: styles.lineHeight,
-    textAlign: styles.textAlign,
-    textIndent: styles.textIndent,
-    textTransform: styles.textTransform,
-    whiteSpace: control instanceof HTMLTextAreaElement ? 'pre-wrap' : 'pre',
-    overflowWrap: 'break-word',
-    visibility: 'hidden',
-    pointerEvents: 'none',
-  })
-  mirror.textContent = control.value.slice(0, start)
-  marker.textContent = control.value.slice(start, end) || ' '
-  mirror.append(marker)
-  document.body.append(mirror)
-  const rect = firstVisibleRect(marker.getClientRects(), controlRect)
-  mirror.remove()
-  return rect
-}
-
-function intersectRects(rect: DOMRect, bounds: DOMRect): DOMRect | null {
-  const top = Math.max(rect.top, bounds.top)
-  const right = Math.min(rect.right, bounds.right)
-  const bottom = Math.min(rect.bottom, bounds.bottom)
-  const left = Math.max(rect.left, bounds.left)
-  if (right <= left || bottom <= top) return null
-  return new DOMRect(left, top, right - left, bottom - top)
-}
-
-function firstVisibleRect(rects: DOMRectList | DOMRect[], bounds: DOMRect): DOMRect | null {
-  return [...rects]
-    .sort((a, b) => a.top - b.top || a.left - b.left)
-    .map((rect) => intersectRects(rect, bounds))
-    .find((rect): rect is DOMRect => rect !== null) ?? null
-}
-
-function domSelectionRect(rootSelector: string): DOMRect | null {
-  const selection = window.getSelection()
-  if (!selection?.rangeCount || selection.isCollapsed) return null
-  const range = selection.getRangeAt(0)
-  const selectedNode =
-    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-      ? (range.commonAncestorContainer as Element)
-      : range.commonAncestorContainer.parentElement
-  if (!selectedNode?.closest(rootSelector)) return null
-
-  const viewport =
-    selectedNode.closest<HTMLElement>('.rich-block-editor-host, .checklist-editor')
-      ?.getBoundingClientRect() ?? selectedNode.getBoundingClientRect()
-  return firstVisibleRect(range.getClientRects(), viewport)
-}
-
-function placeFormattingToolbar(
-  dialog: HTMLDialogElement,
-  toolbar: HTMLElement,
-  anchor: FormattingSelectionAnchor,
-): FormattingToolbarPosition {
-  const pad = 8
-  const gap = 20
-  const toolbarHeight = Math.max(toolbar.offsetHeight, 42)
-  const toolbarWidth = Math.max(toolbar.offsetWidth, 280)
-  const dialogRect = dialog.getBoundingClientRect()
-  const halfWidth = toolbarWidth / 2
-  const left = Math.min(
-    dialogRect.right - halfWidth - pad,
-    Math.max(dialogRect.left + halfWidth + pad, anchor.centerX),
-  )
-  return {
-    top: anchor.top - toolbarHeight - gap,
-    left,
   }
 }
 
@@ -913,6 +816,7 @@ export function NoteEditor({
 
     setFormattingSelectionAnchor({
       top: selectionRect.top,
+      bottom: selectionRect.bottom,
       centerX: selectionRect.left + selectionRect.width / 2,
     })
   }
@@ -922,21 +826,25 @@ export function NoteEditor({
     if (textEditMode === 'preview') return
 
     const onSelectionChange = () => {
-      // Ignore in-progress pointer drags; show only after selection finishes.
+      // Ignore in-progress mouse drags; show only after selection finishes.
       if (pointerSelectingRef.current) return
       updateFormattingToolbarRef.current()
     }
-    const onPointerUp = () => {
+    const endPointerSelecting = () => {
       if (!pointerSelectingRef.current) return
       pointerSelectingRef.current = false
       updateFormattingToolbarRef.current()
+      // Selection can settle after the pointer gesture (especially on touch).
+      window.requestAnimationFrame(() => updateFormattingToolbarRef.current())
     }
 
     document.addEventListener('selectionchange', onSelectionChange)
-    document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointerup', endPointerSelecting)
+    document.addEventListener('pointercancel', endPointerSelecting)
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange)
-      document.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointerup', endPointerSelecting)
+      document.removeEventListener('pointercancel', endPointerSelecting)
     }
   }, [textEditMode])
 
@@ -967,7 +875,7 @@ export function NoteEditor({
         <button
           type="button"
           aria-label={label}
-          onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={(event) => event.preventDefault()}
           onClick={() => runFormat(markdown, rich)}
         >
           {icon}
@@ -1505,13 +1413,6 @@ export function NoteEditor({
               (snapshot) => toggleList(snapshot, 'unordered'),
               (editor) => editor.chain().focus().toggleBulletList().run(),
             )}
-            <span className="formatting-menu-separator" aria-hidden="true" />
-            {formatButton(
-              t('editor.toolbar.horizontalLine'),
-              <Minus aria-hidden="true" />,
-              insertHorizontalRule,
-              (editor) => editor.chain().focus().setHorizontalRule().run(),
-            )}
           </>
         ) : (
           <>
@@ -1635,8 +1536,12 @@ export function NoteEditor({
           ref={editorContentAreaRef}
           onPointerDown={(event) => {
             if ((event.target as Element).closest?.('.formatting-toolbar')) return
-            pointerSelectingRef.current = true
             clearFormattingToolbar()
+            // Touch/pen text selection is OS-driven (long-press / handles) and often
+            // ends with pointercancel instead of pointerup. Only gate mouse drags.
+            if (event.pointerType === 'mouse') {
+              pointerSelectingRef.current = true
+            }
           }}
           onKeyUp={(event) => updateFormattingToolbar(event.target)}
           onScrollCapture={() => updateFormattingToolbar()}
