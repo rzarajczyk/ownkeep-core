@@ -41,6 +41,7 @@ pnpm-debug.log*
 .cursor/*
 !.cursor/skills/
 !.cursor/skills/**
+.cursor/skills/ownkeep-core-saas-compat/
 *.iml
 *.ipr
 *.iws
