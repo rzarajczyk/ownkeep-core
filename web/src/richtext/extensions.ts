@@ -15,6 +15,7 @@ import Text from '@tiptap/extension-text'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 import type { Extensions } from '@tiptap/core'
+import { i18n } from '../i18n'
 
 const markdownExtension = Markdown.configure({
   html: true,
@@ -36,7 +37,9 @@ const InlineDocument = Document.extend({
   content: 'paragraph',
 })
 
-export function blockExtensions(placeholder = 'Write a note…'): Extensions {
+export function blockExtensions(
+  placeholder = i18n.t('editor.contentPlaceholder'),
+): Extensions {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4, 5, 6] },
@@ -64,7 +67,9 @@ export function blockExtensions(placeholder = 'Write a note…'): Extensions {
   ]
 }
 
-export function inlineExtensions(placeholder = 'List item'): Extensions {
+export function inlineExtensions(
+  placeholder = i18n.t('editor.itemPlaceholder'),
+): Extensions {
   return [
     InlineDocument,
     Paragraph,

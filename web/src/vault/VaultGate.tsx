@@ -1,5 +1,6 @@
 import { Check, Copy, Download, KeyRound, LoaderCircle, LockKeyhole, ShieldAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api, ApiError } from '../api'
 import type { AuthSession, User } from '../types'
 import { rewrapVaultForPassword } from '../crypto/vault'
@@ -14,6 +15,7 @@ export function VaultSetup({
   passwordHint: string | null
   onReady: () => void | Promise<void>
 }) {
+  const { t } = useTranslation()
   const { setupVault } = useVault()
   const [password, setPassword] = useState('')
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
@@ -29,7 +31,7 @@ export function VaultSetup({
       const key = await setupVault(passwordValue)
       setRecoveryKey(key)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not enable encryption')
+      setError(err instanceof Error ? err.message : t('vault.setup.error'))
       setBusy(false)
     }
   }
@@ -44,12 +46,12 @@ export function VaultSetup({
     if (!recoveryKey) return
 
     const contents = [
-      'OwnKeep recovery key',
+      t('vault.recoveryKey.downloadFileIntro'),
       '',
       recoveryKey,
       '',
-      'Keep this file somewhere safe and private.',
-      'This key cannot be viewed again in OwnKeep.',
+      t('vault.recoveryKey.downloadFileNote'),
+      t('vault.recoveryKey.downloadFileNote2'),
     ].join('\n')
     const url = URL.createObjectURL(new Blob([contents], { type: 'text/plain;charset=utf-8' }))
     const anchor = document.createElement('a')
@@ -68,16 +70,16 @@ export function VaultSetup({
           <span className="recovery-key-icon" aria-hidden="true">
             <KeyRound />
           </span>
-          <p className="eyebrow">Your vault is ready</p>
-          <h1 id="recovery-key-title">Save your recovery key</h1>
+          <p className="eyebrow">{t('vault.recoveryKey.eyebrow')}</p>
+          <h1 id="recovery-key-title">{t('vault.recoveryKey.title')}</h1>
           <p className="recovery-key-intro">
-            Use this key to regain access to your notes if an admin resets your password.
+            {t('vault.recoveryKey.intro')}
           </p>
           <div className="recovery-key-warning" role="note">
             <ShieldAlert aria-hidden="true" />
             <p>
-              <strong>You won&apos;t be able to see this key again.</strong>
-              <span>Save it now and keep it somewhere safe and private.</span>
+              <strong>{t('vault.recoveryKey.warningStrong')}</strong>
+              <span>{t('vault.recoveryKey.warningBody')}</span>
             </p>
           </div>
           <div className="recovery-key-field">
@@ -86,14 +88,14 @@ export function VaultSetup({
               className="recovery-key-input"
               value={recoveryKey}
               readOnly
-              aria-label="Recovery key"
+              aria-label={t('vault.recoveryKey.inputLabel')}
               onFocus={(event) => event.currentTarget.select()}
             />
             <button
               type="button"
               className="recovery-key-copy"
-              aria-label={copied ? 'Copied' : 'Copy recovery key'}
-              title={copied ? 'Copied' : 'Copy recovery key'}
+              aria-label={copied ? t('vault.recoveryKey.copiedLabel') : t('vault.recoveryKey.copyLabel')}
+              title={copied ? t('vault.recoveryKey.copiedLabel') : t('vault.recoveryKey.copyLabel')}
               onClick={async () => {
                 await navigator.clipboard.writeText(recoveryKey)
                 setCopied(true)
@@ -104,10 +106,10 @@ export function VaultSetup({
           </div>
           <button type="button" className="secondary-button recovery-key-download" onClick={downloadRecoveryKey}>
             <Download aria-hidden="true" />
-            Download key as file
+            {t('vault.recoveryKey.downloadButton')}
           </button>
           <button type="button" className="primary-button vault-continue" onClick={() => void onReady()}>
-            I saved it — continue
+            {t('vault.recoveryKey.continueButton')}
           </button>
         </section>
       </main>
@@ -120,7 +122,7 @@ export function VaultSetup({
         <span className="brand-mark">
           <LoaderCircle className="spin" />
         </span>
-        <p>Setting up encryption…</p>
+        <p>{t('vault.setup.settingUp')}</p>
         {error ? <p className="error">{error}</p> : null}
       </main>
     )
@@ -133,10 +135,10 @@ export function VaultSetup({
         <span className="recovery-key-icon" aria-hidden="true">
           <LockKeyhole />
         </span>
-        <p className="eyebrow">Almost there</p>
-        <h1 id="vault-setup-title">Continue signing in</h1>
+        <p className="eyebrow">{t('vault.setup.continueEyebrow')}</p>
+        <h1 id="vault-setup-title">{t('vault.setup.continueTitle')}</h1>
         <p className="vault-unlock-intro">
-          Enter your password to finish enabling encryption for your notes.
+          {t('vault.setup.continueIntro')}
         </p>
         <form
           className="vault-unlock-form"
@@ -146,7 +148,7 @@ export function VaultSetup({
           }}
         >
           <label>
-            Password
+            {t('vault.setup.passwordLabel')}
             <input
               type="password"
               value={password}
@@ -158,7 +160,7 @@ export function VaultSetup({
           </label>
           {error ? <p className="error">{error}</p> : null}
           <button type="submit" className="primary-button" disabled={busy || !password}>
-            Continue
+            {t('vault.setup.continueButton')}
           </button>
         </form>
       </section>
@@ -175,6 +177,7 @@ export function RestoredUserRecovery({
   onComplete: (session: AuthSession) => void
   onCancel: () => void
 }) {
+  const { t } = useTranslation()
   const { unlockWithRecovery } = useVault()
   const [recoveryKey, setRecoveryKey] = useState('')
   const [password, setPassword] = useState('')
@@ -186,15 +189,15 @@ export function RestoredUserRecovery({
     const trimmedRecoveryKey = recoveryKey.trim()
     setError(null)
     if (!trimmedRecoveryKey) {
-      setError('Enter your recovery key.')
+      setError(t('vault.restore.errors.missingRecoveryKey'))
       return
     }
     if (!password) {
-      setError('Choose a new password.')
+      setError(t('vault.restore.errors.missingPassword'))
       return
     }
     if (password !== confirmation) {
-      setError('Passwords do not match.')
+      setError(t('vault.restore.errors.passwordMismatch'))
       return
     }
 
@@ -208,7 +211,7 @@ export function RestoredUserRecovery({
       setError(
         reason instanceof ApiError
           ? errorMessage(reason)
-          : 'Recovery key was rejected. Check the key and try again.',
+          : t('vault.restore.errors.rejected'),
       )
       setBusy(false)
     }
@@ -220,17 +223,16 @@ export function RestoredUserRecovery({
         <span className="recovery-key-icon" aria-hidden="true">
           <KeyRound />
         </span>
-        <p className="eyebrow">Account restored</p>
-        <h1 id="restored-user-recovery-title">Recover your encrypted notes</h1>
+        <p className="eyebrow">{t('vault.restore.eyebrow')}</p>
+        <h1 id="restored-user-recovery-title">{t('vault.restore.title')}</h1>
         <p className="recovery-complete-intro">
-          Signed in as <strong>{user.email}</strong>. Enter the recovery key you saved when
-          your vault was created, then choose a new password.
+          {t('vault.restore.intro', { email: user.email })}
         </p>
         <div className="recovery-key-warning" role="note">
           <ShieldAlert aria-hidden="true" />
           <p>
-            <strong>Your recovery key stays in this browser.</strong>
-            <span>Only a newly encrypted vault wrap is sent to OwnKeep.</span>
+            <strong>{t('vault.restore.warningStrong')}</strong>
+            <span>{t('vault.restore.warningBody')}</span>
           </p>
         </div>
         <form
@@ -241,7 +243,7 @@ export function RestoredUserRecovery({
           }}
         >
           <label>
-            Recovery key
+            {t('vault.restore.recoveryKeyLabel')}
             <input
               type="text"
               value={recoveryKey}
@@ -254,7 +256,7 @@ export function RestoredUserRecovery({
             />
           </label>
           <label>
-            New password
+            {t('vault.restore.newPasswordLabel')}
             <input
               type="password"
               value={password}
@@ -265,7 +267,7 @@ export function RestoredUserRecovery({
             />
           </label>
           <label>
-            Confirm new password
+            {t('vault.restore.confirmPasswordLabel')}
             <input
               type="password"
               value={confirmation}
@@ -278,10 +280,10 @@ export function RestoredUserRecovery({
           {error ? <p className="inline-error recovery-complete-error" role="alert">{error}</p> : null}
           <button type="submit" className="primary-button" disabled={busy}>
             {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
-            {busy ? 'Recovering…' : 'Recover account'}
+            {busy ? t('vault.restore.recoveringButton') : t('vault.restore.recoverButton')}
           </button>
           <button type="button" className="recovery-cancel" onClick={onCancel} disabled={busy}>
-            Cancel and sign out
+            {t('vault.restore.cancelButton')}
           </button>
         </form>
       </section>
@@ -300,6 +302,7 @@ export function VaultUnlock({
   onLogout: () => Promise<void>
   onReady: () => void | Promise<void>
 }) {
+  const { t } = useTranslation()
   const { unlockWithPassword, unlockWithRecovery, installPasswordWrap } = useVault()
   const needsRecovery = user.vault.needsRecoveryUnlock
   const [password, setPassword] = useState(needsRecovery ? '' : (passwordHint ?? ''))
@@ -314,7 +317,7 @@ export function VaultUnlock({
     try {
       if (needsRecovery) {
         const vaultKey = await unlockWithRecovery((recoveryValue ?? recoveryKey).trim(), user.vault)
-        if (!passwordValue) throw new Error('Choose a new password')
+        if (!passwordValue) throw new Error(t('vault.unlock.missingNewPassword'))
         const wrapped = await rewrapVaultForPassword(vaultKey, passwordValue, user.vault)
         await installPasswordWrap(wrapped)
       } else {
@@ -322,7 +325,7 @@ export function VaultUnlock({
       }
       await onReady()
     } catch {
-      setError(needsRecovery ? 'Recovery key or password was rejected' : 'Incorrect password')
+      setError(needsRecovery ? t('vault.unlock.needsRecoveryError') : t('vault.unlock.error'))
       setBusy(false)
     }
   }
@@ -339,7 +342,7 @@ export function VaultUnlock({
         <span className="brand-mark">
           <LoaderCircle className="spin" />
         </span>
-        <p>Unlocking notes…</p>
+        <p>{t('vault.unlock.unlocking')}</p>
       </main>
     )
   }
@@ -353,19 +356,16 @@ export function VaultUnlock({
         <span className="recovery-key-icon" aria-hidden="true">
           {needsRecovery ? <KeyRound /> : <LockKeyhole />}
         </span>
-        <p className="eyebrow">{needsRecovery ? 'Password reset' : 'Encrypted notes'}</p>
+        <p className="eyebrow">
+          {needsRecovery ? t('vault.unlock.needsRecoveryEyebrow') : t('vault.unlock.eyebrow')}
+        </p>
         <h1 id="vault-unlock-title">
-          {needsRecovery ? 'Recover your vault' : 'Unlock your workspace'}
+          {needsRecovery ? t('vault.unlock.needsRecoveryTitle') : t('vault.unlock.title')}
         </h1>
         <p className="vault-unlock-intro">
           {needsRecovery
-            ? 'An admin reset your password. Enter your recovery key and choose a new password.'
-            : (
-              <>
-                Signed in as <strong>{user.email}</strong>. Enter your password to decrypt
-                your notes.
-              </>
-            )}
+            ? t('vault.unlock.needsRecoveryIntro')
+            : t('vault.unlock.intro', { email: user.email })}
         </p>
         <form
           className="vault-unlock-form"
@@ -376,7 +376,7 @@ export function VaultUnlock({
         >
           {needsRecovery ? (
             <label>
-              Recovery key
+              {t('vault.unlock.recoveryKeyLabel')}
               <input
                 type="text"
                 value={recoveryKey}
@@ -388,7 +388,7 @@ export function VaultUnlock({
             </label>
           ) : null}
           <label>
-            {needsRecovery ? 'New password' : 'Password'}
+            {needsRecovery ? t('vault.unlock.newPasswordLabel') : t('vault.unlock.passwordLabel')}
             <input
               type="password"
               value={password}
@@ -401,10 +401,16 @@ export function VaultUnlock({
           {error ? <p className="error" role="alert">{error}</p> : null}
           <button type="submit" className="primary-button" disabled={busy}>
             {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : needsRecovery ? <KeyRound aria-hidden="true" /> : <LockKeyhole aria-hidden="true" />}
-            {busy ? 'Unlocking…' : needsRecovery ? 'Recover vault' : 'Unlock'}
+            {busy
+              ? needsRecovery
+                ? t('vault.unlock.recoveringButton')
+                : t('vault.unlock.unlockingButton')
+              : needsRecovery
+                ? t('vault.unlock.recoverButton')
+                : t('vault.unlock.unlockButton')}
           </button>
           <button type="button" className="secondary-button" onClick={() => void onLogout()}>
-            Logout
+            {t('vault.unlock.logoutButton')}
           </button>
         </form>
       </section>

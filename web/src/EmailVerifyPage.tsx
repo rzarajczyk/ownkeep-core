@@ -1,5 +1,6 @@
 import { CheckCircle2, KeyRound, LoaderCircle, MailWarning } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { errorMessage } from './utils'
 
@@ -9,23 +10,27 @@ interface EmailVerifyPageProps {
 }
 
 export function EmailVerifyPage({ token, onDone }: EmailVerifyPageProps) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>(
     token ? 'verifying' : 'error',
   )
   const [message, setMessage] = useState(
-    token ? 'Verifying your email…' : 'This verification link is missing a token.',
+    token ? t('auth.verify.verifyingMessage') : t('auth.verify.missingTokenMessage'),
   )
 
   useEffect(() => {
-    if (!token) return
+    if (!token) {
+      setMessage(t('auth.verify.missingTokenMessage'))
+      return
+    }
     const controller = new AbortController()
     setStatus('verifying')
-    setMessage('Verifying your email…')
+    setMessage(t('auth.verify.verifyingMessage'))
     api
       .verifyEmail(token, controller.signal)
       .then(() => {
         setStatus('success')
-        setMessage('Your email is verified. You can sign in.')
+        setMessage(t('auth.verify.successMessage'))
       })
       .catch((reason) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
@@ -33,7 +38,7 @@ export function EmailVerifyPage({ token, onDone }: EmailVerifyPageProps) {
         setMessage(errorMessage(reason))
       })
     return () => controller.abort()
-  }, [token])
+  }, [token, t])
 
   return (
     <main className="login-page">
@@ -42,12 +47,16 @@ export function EmailVerifyPage({ token, onDone }: EmailVerifyPageProps) {
           <span className="brand-mark" aria-hidden="true">
             <KeyRound />
           </span>
-          <span>OwnKeep</span>
+          <span>{t('common.appName')}</span>
         </div>
         <div className="login-copy">
-          <span className="eyebrow">Email verification</span>
+          <span className="eyebrow">{t('auth.verify.eyebrow')}</span>
           <h1 id="verify-heading">
-            {status === 'success' ? 'Email verified' : status === 'error' ? 'Verification failed' : 'Verifying…'}
+            {status === 'success'
+              ? t('auth.verify.successTitle')
+              : status === 'error'
+                ? t('auth.verify.errorTitle')
+                : t('auth.verify.verifyingTitle')}
           </h1>
           <p>{message}</p>
         </div>
@@ -69,7 +78,7 @@ export function EmailVerifyPage({ token, onDone }: EmailVerifyPageProps) {
               window.location.assign('/')
             }}
           >
-            Continue to sign in
+            {t('auth.verify.continue')}
           </button>
         )}
       </section>

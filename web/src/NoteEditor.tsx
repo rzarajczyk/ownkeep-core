@@ -64,6 +64,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
 import {
@@ -180,6 +181,7 @@ function SortableChecklistRow({
   onIndent,
   onRemove,
 }: SortableChecklistRowProps) {
+  const { t } = useTranslation()
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const dragged = useRef(false)
@@ -235,11 +237,11 @@ function SortableChecklistRow({
       style={{ ...style, ['--item-indent' as string]: indent }}
     >
       <div className="drag-handle-wrap" ref={menuRef}>
-        <Tooltip label="Drag to reorder or indent · Click for actions">
+        <Tooltip label={t('editor.checklist.dragHandle')}>
           <button
             type="button"
             className="drag-handle"
-            aria-label={`Checklist item ${index + 1} actions`}
+            aria-label={t('editor.checklist.itemActions', { index: index + 1 })}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => {
@@ -256,7 +258,7 @@ function SortableChecklistRow({
           </button>
         </Tooltip>
         {menuOpen && (
-          <div className="checklist-item-menu" role="menu" aria-label={`Item ${index + 1} actions`}>
+          <div className="checklist-item-menu" role="menu" aria-label={t('editor.checklist.itemActions', { index: index + 1 })}>
             <button
               type="button"
               role="menuitem"
@@ -266,7 +268,7 @@ function SortableChecklistRow({
                 setMenuOpen(false)
               }}
             >
-              <ArrowUp aria-hidden="true" /> Move up
+              <ArrowUp aria-hidden="true" /> {t('editor.checklist.moveUp')}
             </button>
             <button
               type="button"
@@ -277,7 +279,7 @@ function SortableChecklistRow({
                 setMenuOpen(false)
               }}
             >
-              <ArrowDown aria-hidden="true" /> Move down
+              <ArrowDown aria-hidden="true" /> {t('editor.checklist.moveDown')}
             </button>
             <button
               type="button"
@@ -288,7 +290,7 @@ function SortableChecklistRow({
                 setMenuOpen(false)
               }}
             >
-              <IndentIncrease aria-hidden="true" /> Indent
+              <IndentIncrease aria-hidden="true" /> {t('editor.checklist.indent')}
             </button>
             <button
               type="button"
@@ -299,7 +301,7 @@ function SortableChecklistRow({
                 setMenuOpen(false)
               }}
             >
-              <IndentDecrease aria-hidden="true" /> Deindent
+              <IndentDecrease aria-hidden="true" /> {t('editor.checklist.deindent')}
             </button>
           </div>
         )}
@@ -308,19 +310,19 @@ function SortableChecklistRow({
         type="checkbox"
         checked={item.checked}
         onChange={(event) => onToggle(item.id, event.target.checked)}
-        aria-label={`Mark ${item.text || `item ${index + 1}`} complete`}
+        aria-label={t('editor.checklist.markComplete', { item: item.text || t('editor.checklist.itemAriaLabel', { index: index + 1 }) })}
       />
       {mode === 'preview' ? (
         <div
           className={`checklist-item-preview${item.checked ? ' checked' : ''}`}
-          aria-label={`Checklist item ${index + 1}`}
+          aria-label={t('editor.checklist.itemAriaLabel', { index: index + 1 })}
         >
           {previewHtml ? (
             <RenderedMarkdown className="checklist-markdown" html={previewHtml} inline />
           ) : item.text ? (
             <span>{item.text}</span>
           ) : (
-            <span className="editor-preview-empty">Empty item</span>
+            <span className="editor-preview-empty">{t('editor.itemEmptyPreview')}</span>
           )}
         </div>
       ) : mode === 'rich' ? (
@@ -328,7 +330,8 @@ function SortableChecklistRow({
           itemId={item.id}
           value={item.text}
           checked={item.checked}
-          aria-label={`Checklist item ${index + 1}`}
+          placeholder={t('editor.itemPlaceholder')}
+          aria-label={t('editor.checklist.itemAriaLabel', { index: index + 1 })}
           pendingOffset={pendingOffset}
           onPendingOffsetConsumed={onPendingOffsetConsumed}
           onChange={(text) => onTextChange(item.id, text)}
@@ -345,17 +348,17 @@ function SortableChecklistRow({
           onFocus={() => onFocusItem(item.id)}
           onKeyDown={(event) => onKeyDown(event, index)}
           className={item.checked ? 'checked' : ''}
-          placeholder="List item"
-          aria-label={`Checklist item ${index + 1}`}
+          placeholder={t('editor.itemPlaceholder')}
+          aria-label={t('editor.checklist.itemAriaLabel', { index: index + 1 })}
         />
       )}
       {editable && (
-        <Tooltip label={`Delete item ${index + 1}`}>
+        <Tooltip label={t('editor.checklist.deleteItem', { index: index + 1 })}>
           <button
             type="button"
             className="icon-button small"
             onClick={() => onRemove(item.id)}
-            aria-label={`Delete item ${index + 1}`}
+            aria-label={t('editor.checklist.deleteItem', { index: index + 1 })}
           >
             <X />
           </button>
@@ -377,6 +380,7 @@ export function NoteEditor({
   onDelete,
   onDiscard,
 }: NoteEditorProps) {
+  const { t } = useTranslation()
   const { vaultKey } = useVault()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -599,7 +603,7 @@ export function NoteEditor({
     if (saving.current || requestedRevision.current <= savedRevision.current) return
     if (!vaultKey) {
       setSaveState('error')
-      setSaveError('Vault is locked. Unlock before saving.')
+      setSaveError(t('editor.saveError.vaultLocked'))
       saveFailed.current = true
       return
     }
@@ -675,10 +679,10 @@ export function NoteEditor({
               latestDraft.current = rebased
               setDraft(rebased)
               onOptimistic(rebased)
-              message = 'This note changed elsewhere. Retry to save your edits.'
+              message = t('editor.saveError.conflictRetry')
             }
           } catch {
-            message = 'This note changed elsewhere and could not be refreshed. Sync before retrying.'
+            message = t('editor.saveError.conflictUnrefreshable')
           }
         }
         saveFailed.current = true
@@ -695,7 +699,7 @@ export function NoteEditor({
         void flush()
       }
     }
-  }, [ensureLabelIds, onCanonical, onOptimistic, vaultKey])
+  }, [ensureLabelIds, onCanonical, onOptimistic, t, vaultKey])
 
   const flushRef = useRef(flush)
   flushRef.current = flush
@@ -867,15 +871,15 @@ export function NoteEditor({
   async function addLabel(raw: string, options: { keepMenuOpen?: boolean } = {}) {
     const label = resolveLabelName(raw)
     if (!label) {
-      setLabelError('Enter a label name.')
+      setLabelError(t('editor.labels.emptyName'))
       return false
     }
     if (label.length > 500) {
-      setLabelError('Labels must be 500 characters or fewer.')
+      setLabelError(t('editor.labels.tooLong'))
       return false
     }
     if (hasLabel(latestDraft.current.labels, label)) {
-      setLabelError('That label is already on this note.')
+      setLabelError(t('editor.labels.duplicate'))
       return false
     }
     rememberLabel(label)
@@ -1078,7 +1082,7 @@ export function NoteEditor({
   }
 
   async function mergeServerMetadataFromWire() {
-    if (!vaultKey) throw new Error('Vault is locked')
+    if (!vaultKey) throw new Error(t('errors.vaultLocked'))
     const labelMap = labelMapFromNames(
       latestDraft.current.labels,
       latestDraft.current.labelIds,
@@ -1103,7 +1107,7 @@ export function NoteEditor({
     setUploadProgress(0)
     try {
       const noteKey = getCachedNoteKey(draft.id)
-      if (!noteKey) throw new Error('Note key is not available. Reopen the note after unlocking.')
+      if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
       const attachmentId = createId()
       const mimeType = file.type || 'application/octet-stream'
       const kind = inferAttachmentKind(mimeType)
@@ -1149,7 +1153,7 @@ export function NoteEditor({
       try {
         await mergeServerMetadataFromWire()
       } catch {
-        setUploadError('The file was uploaded, but note metadata could not be refreshed. Sync before editing again.')
+        setUploadError(t('editor.attachments.metadataRefreshFailedAfterUpload'))
       }
       if (requestedRevision.current === savedRevision.current) setSaveState('saved')
     } catch (reason) {
@@ -1176,7 +1180,7 @@ export function NoteEditor({
     try {
       await mergeServerMetadataFromWire()
     } catch {
-      setUploadError('The attachment was deleted, but note metadata could not be refreshed. Sync before editing again.')
+      setUploadError(t('editor.attachments.metadataRefreshFailedAfterDelete'))
     }
   }
 
@@ -1234,7 +1238,7 @@ export function NoteEditor({
     <dialog
       ref={dialogRef}
       className="note-dialog"
-      aria-label={`Edit ${draft.title || 'untitled note'}`}
+      aria-label={t('editor.ariaLabel', { title: draft.title || t('editor.untitled') })}
       onCancel={(event) => {
         event.preventDefault()
         void close()
@@ -1253,12 +1257,12 @@ export function NoteEditor({
             {saveState === 'saving' && <LoaderCircle className="spin" aria-hidden="true" />}
             {saveState === 'saved' && <Check aria-hidden="true" />}
             {saveState === 'error' && <CircleAlert aria-hidden="true" />}
-            {saveState === 'dirty' && 'Unsaved changes'}
-            {saveState === 'saving' && 'Saving…'}
-            {saveState === 'saved' && 'Saved'}
-            {saveState === 'error' && 'Could not save'}
+            {saveState === 'dirty' && t('editor.saveStatus.dirty')}
+            {saveState === 'saving' && t('editor.saveStatus.saving')}
+            {saveState === 'saved' && t('editor.saveStatus.saved')}
+            {saveState === 'error' && t('editor.saveStatus.error')}
           </span>
-          <div className="editor-mode-tabs" role="tablist" aria-label="Note mode">
+          <div className="editor-mode-tabs" role="tablist" aria-label={t('editor.modes.tablistAria')}>
             <button
               type="button"
               role="tab"
@@ -1266,7 +1270,7 @@ export function NoteEditor({
               onClick={() => enterEditMode()}
               aria-selected={textEditMode === 'edit'}
             >
-              <Pencil aria-hidden="true" /> Markdown
+              <Pencil aria-hidden="true" /> {t('editor.modes.markdown')}
             </button>
             <button
               type="button"
@@ -1275,7 +1279,7 @@ export function NoteEditor({
               onClick={() => enterRichMode()}
               aria-selected={textEditMode === 'rich'}
             >
-              <PenLine aria-hidden="true" /> Rich edit
+              <PenLine aria-hidden="true" /> {t('editor.modes.richEdit')}
             </button>
             <button
               type="button"
@@ -1289,16 +1293,16 @@ export function NoteEditor({
               }}
               aria-selected={textEditMode === 'preview'}
             >
-              <Eye aria-hidden="true" /> Render
+              <Eye aria-hidden="true" /> {t('editor.modes.render')}
             </button>
           </div>
-          <Tooltip label="Close">
+          <Tooltip label={t('editor.closeTooltip')}>
             <button
               type="button"
               className="icon-button"
               onClick={() => void close()}
               disabled={closing}
-              aria-label="Close editor"
+              aria-label={t('editor.close')}
             >
               {closing ? <LoaderCircle className="spin" /> : <X />}
             </button>
@@ -1312,15 +1316,15 @@ export function NoteEditor({
           onChange={(event) =>
             change((current) => ({ ...current, title: event.target.value }))
           }
-          placeholder="Title"
-          aria-label="Note title"
+          placeholder={t('editor.titlePlaceholder')}
+          aria-label={t('editor.titleAria')}
         />
 
         {draft.type === 'TEXT' ? (
           textEditMode === 'preview' ? (
             <div
               className="editor-markdown-preview"
-              aria-label="Markdown preview"
+              aria-label={t('editor.previewAria')}
               onClick={editFromPreview}
             >
               {previewHtml ? (
@@ -1331,14 +1335,15 @@ export function NoteEditor({
                   attachments={draft.attachments}
                 />
               ) : (
-                <p className="editor-preview-empty">Nothing to preview yet</p>
+                <p className="editor-preview-empty">{t('editor.previewEmpty')}</p>
               )}
             </div>
           ) : textEditMode === 'rich' ? (
             <RichBlockEditor
               value={draft.contentRaw}
               attachments={draft.attachments}
-              aria-label="Note content"
+              placeholder={t('editor.contentPlaceholder')}
+              aria-label={t('editor.contentAria')}
               pendingOffset={pendingRichOffset}
               onPendingOffsetConsumed={() => setPendingRichOffset(null)}
               onChange={(contentRaw) =>
@@ -1356,14 +1361,14 @@ export function NoteEditor({
               onChange={(event) =>
                 change((current) => ({ ...current, contentRaw: event.target.value }))
               }
-              placeholder="Write a note… Use Formatting to insert Markdown."
-              aria-label="Note content"
+              placeholder={t('editor.contentPlaceholder')}
+              aria-label={t('editor.contentAria')}
             />
           )
         ) : (
           <div
             className={`checklist-editor${textEditMode === 'preview' ? ' preview-mode' : ''}${textEditMode === 'rich' ? ' rich-mode' : ''}`}
-            aria-label={textEditMode === 'preview' ? 'Markdown preview' : undefined}
+            aria-label={textEditMode === 'preview' ? t('editor.previewAria') : undefined}
             onClick={textEditMode === 'preview' ? editFromPreview : undefined}
           >
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderItems}>
@@ -1405,7 +1410,7 @@ export function NoteEditor({
             </DndContext>
             {(textEditMode === 'edit' || textEditMode === 'rich') && (
               <button type="button" className="add-item" onClick={() => addItem()}>
-                <Plus aria-hidden="true" /> Add item
+                <Plus aria-hidden="true" /> {t('editor.checklist.addItem')}
               </button>
             )}
           </div>
@@ -1413,18 +1418,18 @@ export function NoteEditor({
 
         <div className="editor-native-fields">
           <span className="editor-labels-caption" id="note-labels-caption">
-            Labels
+            {t('editor.labels.caption')}
           </span>
           <div className="editor-labels" role="group" aria-labelledby="note-labels-caption">
             {draft.labels.map((label) => (
               <span className="label-chip" key={label}>
                 <span className="label-chip-text">{label}</span>
-                <Tooltip label={`Remove ${label}`}>
+                <Tooltip label={t('editor.labels.remove', { label })}>
                   <button
                     type="button"
                     className="label-chip-remove"
                     onClick={() => removeLabel(label)}
-                    aria-label={`Remove label ${label}`}
+                    aria-label={t('editor.labels.remove', { label })}
                   >
                     <X aria-hidden="true" />
                   </button>
@@ -1432,7 +1437,7 @@ export function NoteEditor({
               </span>
             ))}
             <div className="label-add-wrap" ref={labelMenuRef}>
-              <Tooltip label="Add label">
+              <Tooltip label={t('editor.labels.add')}>
                 <button
                   type="button"
                   className="label-chip label-chip-add"
@@ -1441,7 +1446,7 @@ export function NoteEditor({
                     setLabelError('')
                     setNewLabelText('')
                   }}
-                  aria-label="Add label"
+                  aria-label={t('editor.labels.add')}
                   aria-haspopup="menu"
                   aria-expanded={labelMenuOpen}
                 >
@@ -1449,10 +1454,10 @@ export function NoteEditor({
                 </button>
               </Tooltip>
               {labelMenuOpen && (
-                <div className="label-menu" role="menu" aria-label="Add label">
+                <div className="label-menu" role="menu" aria-label={t('editor.labels.add')}>
                   <div className="label-menu-create">
                     <label className="sr-only" htmlFor="new-note-label">
-                      New label
+                      {t('editor.labels.newLabel')}
                     </label>
                     <input
                       ref={newLabelRef}
@@ -1460,7 +1465,7 @@ export function NoteEditor({
                       type="text"
                       value={newLabelText}
                       maxLength={500}
-                      placeholder="Create new label"
+                      placeholder={t('editor.labels.createPlaceholder')}
                       onChange={(event) => {
                         setNewLabelText(event.target.value)
                         setLabelError('')
@@ -1477,7 +1482,7 @@ export function NoteEditor({
                       className="secondary-button"
                       onClick={() => void addLabel(newLabelText, { keepMenuOpen: true })}
                     >
-                      Create
+                      {t('editor.labels.create')}
                     </button>
                   </div>
                   {labelError && (
@@ -1506,7 +1511,7 @@ export function NoteEditor({
                       })}
                     </ul>
                   ) : (
-                    <p className="label-menu-empty">No labels yet</p>
+                    <p className="label-menu-empty">{t('editor.labels.empty')}</p>
                   )}
                 </div>
               )}
@@ -1515,7 +1520,7 @@ export function NoteEditor({
         </div>
 
         {draft.attachments.length > 0 && (
-          <section className="editor-attachments" aria-label="Attachments">
+          <section className="editor-attachments" aria-label={t('editor.attachments.aria')}>
             {draft.attachments.map((attachment) => (
               <AttachmentView
                 key={attachment.id}
@@ -1529,9 +1534,9 @@ export function NoteEditor({
 
         {saveError && (
           <div className="save-error" role="alert">
-            <span>{saveError} Your edits are preserved.</span>
+            <span>{t('editor.saveError.preserved', { error: saveError })}</span>
             <button type="button" onClick={() => void flush()}>
-              <RotateCcw aria-hidden="true" /> Retry
+              <RotateCcw aria-hidden="true" /> {t('editor.saveError.retry')}
             </button>
           </div>
         )}
@@ -1542,19 +1547,19 @@ export function NoteEditor({
         )}
         {uploadProgress !== null && (
           <div className="upload-progress" role="status">
-            <span>Uploading… {uploadProgress}%</span>
+            <span>{t('editor.attachments.uploading', { progress: uploadProgress })}</span>
             <progress max="100" value={uploadProgress} />
           </div>
         )}
 
         <footer className="editor-footer">
           <div className="editor-tools editor-tools-left">
-            <Tooltip label={draft.pinned ? 'Unpin note' : 'Pin note'}>
+            <Tooltip label={draft.pinned ? t('editor.toolbar.unpin') : t('editor.toolbar.pin')}>
               <button
                 type="button"
                 className={`icon-button ${draft.pinned ? 'selected-tool' : ''}`}
                 onClick={() => change((current) => ({ ...current, pinned: !current.pinned }))}
-                aria-label={draft.pinned ? 'Unpin note' : 'Pin note'}
+                aria-label={draft.pinned ? t('editor.toolbar.unpin') : t('editor.toolbar.pin')}
                 aria-pressed={draft.pinned}
               >
                 <Pin />
@@ -1562,12 +1567,12 @@ export function NoteEditor({
             </Tooltip>
             <span className="editor-tool-separator" aria-hidden="true" />
             <div className="color-picker-wrap" ref={colorMenuRef}>
-              <Tooltip label="Color palette">
+              <Tooltip label={t('editor.toolbar.colorPalette')}>
                 <button
                   type="button"
                   className={`icon-button${colorMenuOpen ? ' selected-tool' : ''}`}
                   onClick={() => setColorMenuOpen((open) => !open)}
-                  aria-label="Color palette"
+                  aria-label={t('editor.toolbar.colorPalette')}
                   aria-haspopup="menu"
                   aria-expanded={colorMenuOpen}
                 >
@@ -1575,14 +1580,14 @@ export function NoteEditor({
                 </button>
               </Tooltip>
               {colorMenuOpen && (
-                <div className="color-picker-menu" role="menu" aria-label="Note color">
+                <div className="color-picker-menu" role="menu" aria-label={t('editor.toolbar.noteColorAria')}>
                   {NOTE_COLORS.map((color) => {
                     const selected =
                       draft.backgroundColor === color.value ||
                       (color.value === '#ffffff' &&
                         (!draft.backgroundColor || draft.backgroundColor === 'default'))
                     return (
-                      <Tooltip label={color.label} key={color.value}>
+                      <Tooltip label={t(`editor.colors.${color.labelKey}`)} key={color.value}>
                         <button
                           type="button"
                           role="menuitemradio"
@@ -1594,7 +1599,7 @@ export function NoteEditor({
                               backgroundColor: color.value,
                             }))
                           }
-                          aria-label={`${color.label} color`}
+                          aria-label={t(`editor.colors.${color.labelKey}`)}
                           aria-checked={selected}
                         >
                           {color.value === '#ffffff' ? (
@@ -1608,32 +1613,32 @@ export function NoteEditor({
               )}
             </div>
             <Tooltip
-              label={draft.type === 'TEXT' ? 'Add checkboxes' : 'Remove checkboxes'}
+              label={draft.type === 'TEXT' ? t('editor.toolbar.addCheckboxes') : t('editor.toolbar.removeCheckboxes')}
             >
               <button
                 type="button"
                 className="icon-button"
                 onClick={draft.type === 'TEXT' ? addCheckboxes : removeCheckboxes}
-                aria-label={draft.type === 'TEXT' ? 'Add checkboxes' : 'Remove checkboxes'}
+                aria-label={draft.type === 'TEXT' ? t('editor.toolbar.addCheckboxes') : t('editor.toolbar.removeCheckboxes')}
               >
                 {draft.type === 'TEXT' ? <ListChecks /> : <ListX />}
               </button>
             </Tooltip>
-            <Tooltip label="Upload attachment">
+            <Tooltip label={t('editor.attachments.upload')}>
               <label className="icon-button file-picker">
                 <Paperclip aria-hidden="true" />
-                <span className="sr-only">Upload attachment</span>
+                <span className="sr-only">{t('editor.attachments.upload')}</span>
                 <input type="file" onChange={(event) => void upload(event)} />
               </label>
             </Tooltip>
             {(textEditMode === 'edit' || textEditMode === 'rich') && (
               <div className="formatting-wrap" ref={formattingMenuRef}>
-                <Tooltip label="Formatting">
+                <Tooltip label={t('editor.toolbar.formatting')}>
                   <button
                     type="button"
                     className={`icon-button${formattingMenuOpen ? ' selected-tool' : ''}`}
                     onClick={() => setFormattingMenuOpen((open) => !open)}
-                    aria-label="Formatting"
+                    aria-label={t('editor.toolbar.formatting')}
                     aria-haspopup="menu"
                     aria-expanded={formattingMenuOpen}
                   >
@@ -1646,15 +1651,15 @@ export function NoteEditor({
                   <div
                     className="formatting-menu"
                     role="menu"
-                    aria-label="Formatting"
+                    aria-label={t('editor.toolbar.formatting')}
                   >
                     {draft.type === 'TEXT' ? (
                       <>
-                        <Tooltip label="Heading 1">
+                        <Tooltip label={t('editor.toolbar.heading1')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Heading 1"
+                            aria-label={t('editor.toolbar.heading1')}
                             onClick={() =>
                               runFormat(
                                 (s) => setHeadingLevel(s, 1),
@@ -1666,11 +1671,11 @@ export function NoteEditor({
                             <Heading1 aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Heading 2">
+                        <Tooltip label={t('editor.toolbar.heading2')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Heading 2"
+                            aria-label={t('editor.toolbar.heading2')}
                             onClick={() =>
                               runFormat(
                                 (s) => setHeadingLevel(s, 2),
@@ -1682,11 +1687,11 @@ export function NoteEditor({
                             <Heading2 aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Normal text">
+                        <Tooltip label={t('editor.toolbar.normalText')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Normal text"
+                            aria-label={t('editor.toolbar.normalText')}
                             onClick={() =>
                               runFormat(
                                 (s) => setHeadingLevel(s, 0),
@@ -1697,11 +1702,11 @@ export function NoteEditor({
                             <Type aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Code block">
+                        <Tooltip label={t('editor.toolbar.codeBlock')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Code block"
+                            aria-label={t('editor.toolbar.codeBlock')}
                             onClick={() =>
                               runFormat(insertFencedCode, (editor) =>
                                 editor.chain().focus().toggleCodeBlock().run(),
@@ -1712,11 +1717,11 @@ export function NoteEditor({
                           </button>
                         </Tooltip>
                         <span className="formatting-menu-separator" aria-hidden="true" />
-                        <Tooltip label="Bold">
+                        <Tooltip label={t('editor.toolbar.bold')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Bold"
+                            aria-label={t('editor.toolbar.bold')}
                             onClick={() =>
                               runFormat(toggleBold, (editor) =>
                                 editor.chain().focus().toggleBold().run(),
@@ -1726,11 +1731,11 @@ export function NoteEditor({
                             <Bold aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Italic">
+                        <Tooltip label={t('editor.toolbar.italic')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Italic"
+                            aria-label={t('editor.toolbar.italic')}
                             onClick={() =>
                               runFormat(toggleItalic, (editor) =>
                                 editor.chain().focus().toggleItalic().run(),
@@ -1740,11 +1745,11 @@ export function NoteEditor({
                             <Italic aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Underline">
+                        <Tooltip label={t('editor.toolbar.underline')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Underline"
+                            aria-label={t('editor.toolbar.underline')}
                             onClick={() =>
                               runFormat(toggleUnderline, (editor) =>
                                 editor.chain().focus().toggleUnderline().run(),
@@ -1754,11 +1759,11 @@ export function NoteEditor({
                             <Underline aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Strikethrough">
+                        <Tooltip label={t('editor.toolbar.strikethrough')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Strikethrough"
+                            aria-label={t('editor.toolbar.strikethrough')}
                             onClick={() =>
                               runFormat(toggleStrikethrough, (editor) =>
                                 editor.chain().focus().toggleStrike().run(),
@@ -1769,11 +1774,11 @@ export function NoteEditor({
                           </button>
                         </Tooltip>
                         <span className="formatting-menu-separator" aria-hidden="true" />
-                        <Tooltip label="Ordered list">
+                        <Tooltip label={t('editor.toolbar.orderedList')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Ordered list"
+                            aria-label={t('editor.toolbar.orderedList')}
                             onClick={() =>
                               runFormat(
                                 (s) => toggleList(s, 'ordered'),
@@ -1785,11 +1790,11 @@ export function NoteEditor({
                             <ListOrdered aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Unordered list">
+                        <Tooltip label={t('editor.toolbar.unorderedList')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Unordered list"
+                            aria-label={t('editor.toolbar.unorderedList')}
                             onClick={() =>
                               runFormat(
                                 (s) => toggleList(s, 'unordered'),
@@ -1802,11 +1807,11 @@ export function NoteEditor({
                           </button>
                         </Tooltip>
                         <span className="formatting-menu-separator" aria-hidden="true" />
-                        <Tooltip label="Horizontal line">
+                        <Tooltip label={t('editor.toolbar.horizontalLine')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Horizontal line"
+                            aria-label={t('editor.toolbar.horizontalLine')}
                             onClick={() =>
                               runFormat(insertHorizontalRule, (editor) =>
                                 editor.chain().focus().setHorizontalRule().run(),
@@ -1819,11 +1824,11 @@ export function NoteEditor({
                       </>
                     ) : (
                       <>
-                        <Tooltip label="Bold">
+                        <Tooltip label={t('editor.toolbar.bold')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Bold"
+                            aria-label={t('editor.toolbar.bold')}
                             onClick={() =>
                               runFormat(toggleBold, (editor) =>
                                 editor.chain().focus().toggleBold().run(),
@@ -1833,11 +1838,11 @@ export function NoteEditor({
                             <Bold aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Italic">
+                        <Tooltip label={t('editor.toolbar.italic')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Italic"
+                            aria-label={t('editor.toolbar.italic')}
                             onClick={() =>
                               runFormat(toggleItalic, (editor) =>
                                 editor.chain().focus().toggleItalic().run(),
@@ -1847,11 +1852,11 @@ export function NoteEditor({
                             <Italic aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Strikethrough">
+                        <Tooltip label={t('editor.toolbar.strikethrough')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Strikethrough"
+                            aria-label={t('editor.toolbar.strikethrough')}
                             onClick={() =>
                               runFormat(toggleStrikethrough, (editor) =>
                                 editor.chain().focus().toggleStrike().run(),
@@ -1861,11 +1866,11 @@ export function NoteEditor({
                             <Strikethrough aria-hidden="true" />
                           </button>
                         </Tooltip>
-                        <Tooltip label="Inline code">
+                        <Tooltip label={t('editor.toolbar.inlineCode')}>
                           <button
                             type="button"
                             role="menuitem"
-                            aria-label="Inline code"
+                            aria-label={t('editor.toolbar.inlineCode')}
                             onClick={() =>
                               runFormat(toggleInlineCode, (editor) =>
                                 editor.chain().focus().toggleCode().run(),
@@ -1883,25 +1888,25 @@ export function NoteEditor({
             )}
           </div>
           <div className="editor-tools editor-tools-right">
-            <Tooltip label={draft.archived ? 'Restore note' : 'Archive note'}>
+            <Tooltip label={draft.archived ? t('editor.toolbar.restore') : t('editor.toolbar.archive')}>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() =>
                   change((current) => ({ ...current, archived: !current.archived }))
                 }
-                aria-label={draft.archived ? 'Restore note' : 'Archive note'}
+                aria-label={draft.archived ? t('editor.toolbar.restore') : t('editor.toolbar.archive')}
               >
                 {draft.archived ? <ArchiveRestore /> : <Archive />}
               </button>
             </Tooltip>
-            <Tooltip label="Delete note">
+            <Tooltip label={t('editor.toolbar.delete')}>
               <button
                 type="button"
                 className="icon-button danger"
                 onClick={() => void removeNote()}
                 disabled={deleting}
-                aria-label="Delete note"
+                aria-label={t('editor.toolbar.delete')}
               >
                 {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
               </button>

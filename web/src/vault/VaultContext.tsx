@@ -15,6 +15,7 @@ import {
   unlockVaultWithRecovery,
 } from '../crypto/vault'
 import { api } from '../api'
+import { i18n } from '../i18n'
 
 interface VaultContextValue {
   vaultKey: Uint8Array | null
@@ -62,7 +63,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
   const rewrapForNewPassword = useCallback(
     async (newPassword: string, vault: VaultInfo) => {
-      if (!vaultKey) throw new Error('Vault is locked')
+      if (!vaultKey) throw new Error(i18n.t('errors.vaultLocked'))
       return rewrapVaultForPassword(vaultKey, newPassword, vault)
     },
     [vaultKey],

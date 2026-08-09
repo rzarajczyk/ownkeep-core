@@ -1,5 +1,6 @@
 import { CircleAlert, LoaderCircle, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { importKeepZip } from './keepImport/clientImport'
 import { useVault } from './vault/VaultContext'
 import { errorMessage } from './utils'
@@ -10,6 +11,7 @@ interface KeepImportDialogProps {
 }
 
 export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps) {
+  const { t } = useTranslation()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const { vaultKey } = useVault()
   const [file, setFile] = useState<File | null>(null)
@@ -36,15 +38,15 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
     event.preventDefault()
     setError('')
     if (!vaultKey) {
-      setError('Unlock the vault before importing.')
+      setError(t('import.vaultLocked'))
       return
     }
     if (!file) {
-      setFileError('Choose the Google Keep Takeout ZIP file.')
+      setFileError(t('import.noFileSelected'))
       return
     }
     if (!file.name.toLowerCase().endsWith('.zip')) {
-      setFileError('Choose a .zip file downloaded from Google Takeout.')
+      setFileError(t('import.invalidFile'))
       return
     }
     setFileError('')
@@ -66,20 +68,17 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
     <dialog ref={dialogRef} className="modal" onCancel={(event) => event.preventDefault()}>
       <form className="modal-card" onSubmit={(event) => void submit(event)}>
         <header className="modal-header">
-          <h2>Import from Google Keep</h2>
-          <button type="button" className="icon-button" onClick={close} aria-label="Close" disabled={busy}>
+          <h2>{t('import.title')}</h2>
+          <button type="button" className="icon-button" onClick={close} aria-label={t('common.actions.close')} disabled={busy}>
             <X />
           </button>
         </header>
-        <p>
-          Notes are decrypted from the Takeout ZIP in your browser, then encrypted before upload. The server never
-          sees plaintext import content.
-        </p>
+        <p>{t('import.description')}</p>
         {!result ? (
           <>
             <label className="file-field">
               <Upload aria-hidden="true" />
-              <span>{file ? file.name : 'Choose Takeout ZIP'}</span>
+              <span>{file ? file.name : t('import.chooseFile')}</span>
               <input
                 type="file"
                 accept=".zip,application/zip"
@@ -95,23 +94,24 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
             ) : null}
             {progress !== null ? (
               <p role="status">
-                <LoaderCircle className="spin" aria-hidden="true" /> Importing… {progress}%
+                <LoaderCircle className="spin" aria-hidden="true" />{' '}
+                {t('import.progress', { progress })}
               </p>
             ) : null}
             <footer className="modal-actions">
               <button type="button" onClick={close} disabled={busy}>
-                Cancel
+                {t('import.cancel')}
               </button>
               <button type="submit" className="primary" disabled={busy}>
-                {busy ? 'Importing…' : 'Import'}
+                {busy ? t('import.submitting') : t('import.submit')}
               </button>
             </footer>
           </>
         ) : (
           <>
             <p>
-              Imported {result.imported} note{result.imported === 1 ? '' : 's'}
-              {result.skipped ? `, skipped ${result.skipped}` : ''}.
+              {t('import.result.imported', { count: result.imported })}
+              {result.skipped ? t('import.result.skipped', { count: result.skipped }) : ''}.
             </p>
             {result.warnings.length > 0 ? (
               <ul className="import-warnings">
@@ -122,7 +122,7 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
             ) : null}
             <footer className="modal-actions">
               <button type="button" className="primary" onClick={onClose}>
-                Done
+                {t('import.done')}
               </button>
             </footer>
           </>

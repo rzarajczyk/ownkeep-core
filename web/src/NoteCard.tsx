@@ -1,5 +1,6 @@
 import { Archive, ArchiveRestore, MoreHorizontal, Pin, Trash2 } from 'lucide-react'
 import { useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AttachmentView } from './AttachmentView'
 import { RenderedMarkdown } from './RenderedMarkdown'
 import type { Note } from './types'
@@ -13,6 +14,7 @@ interface NoteCardProps {
 }
 
 export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
+  const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const [working, setWorking] = useState(false)
 
@@ -36,7 +38,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
     <article
       className="note-card"
       style={{ backgroundColor: note.backgroundColor || '#ffffff' }}
-      aria-label={note.title || 'Untitled note'}
+      aria-label={note.title || t('notes.card.untitled')}
       tabIndex={0}
       onClick={openNote}
       onKeyDown={(event) => {
@@ -47,7 +49,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
       }}
     >
       <div className="card-open">
-        {note.pinned && <Pin className="card-pin" aria-label="Pinned note" />}
+        {note.pinned && <Pin className="card-pin" aria-label={t('notes.card.pinned')} />}
         {note.attachments
           .filter((attachment) => attachment.kind === 'IMAGE')
           .slice(0, 1)
@@ -72,7 +74,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
             note.contentRaw && <p className="plain-content">{linkify(note.contentRaw)}</p>
           )
         ) : (
-          <ul className="card-checklist" aria-label="Checklist">
+          <ul className="card-checklist" aria-label={t('notes.card.checklist')}>
             {note.items.slice(0, 8).map((item) => (
               <li
                 className={item.checked ? 'checked' : ''}
@@ -92,11 +94,13 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
                 )}
               </li>
             ))}
-            {note.items.length > 8 && <li className="more-items">+{note.items.length - 8} more</li>}
+            {note.items.length > 8 && (
+              <li className="more-items">{t('notes.card.moreItems', { count: note.items.length - 8 })}</li>
+            )}
           </ul>
         )}
         {note.labels.length > 0 && (
-          <ul className="note-labels" aria-label="Labels">
+          <ul className="note-labels" aria-label={t('notes.card.labels')}>
             {note.labels.map((label) => <li key={label}>{label}</li>)}
           </ul>
         )}
@@ -123,7 +127,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
           className="icon-button"
           onClick={() => void act(() => onArchive(note))}
           disabled={working}
-          aria-label={note.archived ? 'Restore note' : 'Archive note'}
+          aria-label={note.archived ? t('notes.card.restore') : t('notes.card.archive')}
         >
           {note.archived ? <ArchiveRestore /> : <Archive />}
         </button>
@@ -131,7 +135,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
           <button
             type="button"
             className="icon-button"
-            aria-label="More note actions"
+            aria-label={t('notes.card.moreActions')}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
@@ -140,7 +144,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
           {menuOpen && (
             <div className="popover-menu">
               <button type="button" onClick={() => void act(() => onDelete(note))}>
-                <Trash2 aria-hidden="true" /> Delete
+                <Trash2 aria-hidden="true" /> {t('notes.card.delete')}
               </button>
             </div>
           )}

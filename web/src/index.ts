@@ -6,6 +6,15 @@ export { UserManagementDialog } from './UserManagementDialog'
 export { UserSettingsDialog } from './UserSettingsDialog'
 export { api, ApiError } from './api'
 export type * from './types'
+import './i18n'
+export {
+  applyLanguagePreference,
+  bootstrapI18n,
+  i18n,
+  readLanguagePreference,
+  resolveLanguage,
+} from './i18n'
+export type { LanguagePreference, SupportedLanguage } from './i18n'
 export {
   VaultProvider,
   useVault,

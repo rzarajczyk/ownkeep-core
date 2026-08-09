@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { useEffect, useRef } from 'react'
+import { i18n } from '../i18n'
 import { inlineExtensions } from './extensions'
 import {
   getEditorMarkdown,
@@ -28,7 +29,7 @@ export function RichInlineEditor({
   value,
   itemId,
   checked = false,
-  placeholder = 'List item',
+  placeholder = i18n.t('editor.itemPlaceholder'),
   'aria-label': ariaLabel,
   pendingOffset = null,
   onPendingOffsetConsumed,

@@ -1,13 +1,17 @@
 import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import './App.css'
 import { api } from './api'
 import { AppShell } from './AppShell'
 import { EmailVerifyPage } from './EmailVerifyPage'
+import { bootstrapI18n } from './i18n'
 import { Login } from './Login'
 import type { AuthSession, User } from './types'
 import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
 import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './vault/VaultGate'
+
+bootstrapI18n()
 
 const TOKEN_KEY = 'ownkeep.auth'
 
@@ -93,6 +97,7 @@ function AuthenticatedApp({
 }
 
 function App() {
+  const { t } = useTranslation()
   const [session, setSession] = useState<AuthSession | null>(() => readStoredSession())
   const [restoring, setRestoring] = useState(
     () => Boolean(session && !session.recoveryRequired),
@@ -169,7 +174,7 @@ function App() {
         <span className="brand-mark">
           <LoaderCircle className="spin" />
         </span>
-        <p>Opening OwnKeep…</p>
+        <p>{t('auth.boot.opening')}</p>
       </main>
     )
   }

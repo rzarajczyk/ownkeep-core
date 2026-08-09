@@ -1837,6 +1837,34 @@ svg {
   background: #f8f7f3;
   font: inherit;
 }
+.settings-language-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8f7f3;
+}
+.settings-language-field svg {
+  width: 18px;
+  height: 18px;
+  color: #898b87;
+  flex: none;
+}
+.settings-language-field select {
+  min-width: 0;
+  flex: 1;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  outline: 0;
+}
+.settings-language-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(31 85 70 / 11%);
+}
 .settings-form h3 {
   display: flex;
   align-items: center;
@@ -2324,7 +2352,7 @@ svg {
   .import-panel { padding: 20px; }
   .settings-layout { grid-template-columns: 1fr; gap: 14px; }
   .settings-section-nav {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     padding-top: 0;
   }
   .settings-section-nav button { text-align: center; }

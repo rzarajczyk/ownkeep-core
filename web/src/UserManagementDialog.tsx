@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   DELETED_USER_RETENTION_DAYS,
   softDeleteUserConfirmation,
@@ -49,25 +50,35 @@ function permanentDeletionDeadline(deletedAt: string | null | undefined) {
   return new Date(deletedAtTime + DELETED_USER_RETENTION_DAYS * 24 * 60 * 60 * 1000)
 }
 
-function permanentDeletionStatus(deletedAt: string | null | undefined, now: number) {
-  const deadline = permanentDeletionDeadline(deletedAt)
-  if (!deadline) return null
-  const remaining = deadline.getTime() - now
-  const calendarDate = deadline.toLocaleDateString(undefined, {
+function formatCalendarDate(deadline: Date, language: string) {
+  return deadline.toLocaleDateString(language, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
   })
-  if (remaining <= 0) return `Due for permanent deletion on ${calendarDate}.`
+}
+
+function permanentDeletionStatus(
+  deletedAt: string | null | undefined,
+  now: number,
+  language: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  const deadline = permanentDeletionDeadline(deletedAt)
+  if (!deadline) return null
+  const remaining = deadline.getTime() - now
+  const calendarDate = formatCalendarDate(deadline, language)
+  if (remaining <= 0) return t('admin.restore.dueNow', { date: calendarDate })
   const hours = Math.ceil(remaining / (60 * 60 * 1000))
   if (hours < 24) {
-    return `Permanently deletes in ${hours} ${hours === 1 ? 'hour' : 'hours'} on ${calendarDate}.`
+    return t('admin.restore.inHours', { count: hours, date: calendarDate })
   }
   const days = Math.ceil(hours / 24)
-  return `Permanently deletes in ${days} ${days === 1 ? 'day' : 'days'} on ${calendarDate}.`
+  return t('admin.restore.inDays', { count: days, date: calendarDate })
 }
 
 export function UserManagementDialog({ currentUser, onClose }: UserManagementDialogProps) {
+  const { t, i18n } = useTranslation()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const emailId = useId()
   const passwordId = useId()
@@ -134,7 +145,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     setError('')
     setStatus('')
     if (!email.trim() || !password) {
-      setError('Enter an email and password for the new user.')
+      setError(t('admin.errors.missingCreateFields'))
       return
     }
     setCreating(true)
@@ -144,7 +155,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
       setEmail('')
       setPassword('')
       setView('list')
-      setStatus(`${created.email} was added.`)
+      setStatus(t('admin.status.userAdded', { email: created.email }))
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -168,7 +179,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
           ),
         ),
       )
-      setStatus(`${user.email} was moved to deleted users.`)
+      setStatus(t('admin.status.userDeleted', { email: user.email }))
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -195,7 +206,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
         email: restored.user.email,
         temporaryPassword: restored.temporaryPassword,
       })
-      setStatus(`${restored.user.email} was restored and must complete account recovery.`)
+      setStatus(t('admin.status.userRestored', { email: restored.user.email }))
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -205,7 +216,10 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
 
   async function permanentlyDeleteUser(user: ManagedUser) {
     const confirmed = window.confirm(
-      `Permanently delete “${user.email}” and all of their encrypted data now?\n\nThis skips any remaining ${DELETED_USER_RETENTION_DAYS}-day retention period. It is irreversible and cannot be restored.`,
+      t('admin.confirm.permanentDelete', {
+        email: user.email,
+        days: DELETED_USER_RETENTION_DAYS,
+      }),
     )
     if (!confirmed) return
     setBusyId(user.id)
@@ -214,7 +228,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     try {
       await api.permanentlyDeleteUser(user.id)
       setUsers((list) => list.filter((entry) => entry.id !== user.id))
-      setStatus(`${user.email} was permanently deleted.`)
+      setStatus(t('admin.status.userPermanentlyDeleted', { email: user.email }))
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -236,7 +250,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
           throw reason
         }
       }
-      setStatus(`Verification email sent to ${user.email}.`)
+      setStatus(t('admin.status.verificationSent', { email: user.email }))
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -250,7 +264,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     setError('')
     setStatus('')
     if (!resetPassword) {
-      setError('Enter a new password.')
+      setError(t('admin.errors.missingResetPassword'))
       return
     }
     setBusyId(resetFor.id)
@@ -260,7 +274,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
       setResetFor(null)
       setResetPassword('')
       setView('list')
-      setStatus(`Password updated for ${resetEmail}.`)
+      setStatus(t('admin.status.passwordUpdated', { email: resetEmail }))
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -275,14 +289,14 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     const deletionStatusId = `deletion-status-${user.id}`
     const showResend =
       user.enabled && !user.emailVerified && !isCurrentUser && user.role !== 'ADMIN'
-    const deletionStatus = permanentDeletionStatus(user.deletedAt, now)
+    const deletionStatus = permanentDeletionStatus(user.deletedAt, now, i18n.language, t)
     const deletionDeadline = permanentDeletionDeadline(user.deletedAt)
     const restoreAllowed =
       user.canRestore && (!deletionDeadline || deletionDeadline.getTime() > now)
     const restorationNote =
       deletionDeadline && deletionDeadline.getTime() <= now
-        ? 'It can no longer be restored.'
-        : 'Restore is available only until then.'
+        ? t('admin.restore.unavailableNote')
+        : t('admin.restore.availableNote')
 
     return (
       <li key={user.id} className={user.enabled ? undefined : 'user-row-deleted'}>
@@ -291,23 +305,25 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
           <div>
             <strong>{user.email}</strong>
             <span className="user-meta">
-              {user.role === 'ADMIN' ? 'Administrator' : 'User'}
-              {isCurrentUser && <span className="user-you">You</span>}
-              {!user.enabled && <span className="user-state user-state-deleted">Deleted</span>}
+              {user.role === 'ADMIN' ? t('admin.roles.admin') : t('admin.roles.user')}
+              {isCurrentUser && <span className="user-you">{t('admin.roles.you')}</span>}
+              {!user.enabled && (
+                <span className="user-state user-state-deleted">{t('admin.states.deleted')}</span>
+              )}
               {user.enabled && (
                 <span
                   className={`user-state ${user.emailVerified ? 'user-state-verified' : 'user-state-pending'}`}
                 >
-                  {user.emailVerified ? 'Verified' : 'Pending'}
+                  {user.emailVerified ? t('admin.states.verified') : t('admin.states.pending')}
                 </span>
               )}
               {user.enabled && user.recoveryPending && (
-                <span className="user-state user-state-recovery">Recovery pending</span>
+                <span className="user-state user-state-recovery">{t('admin.states.recoveryPending')}</span>
               )}
             </span>
             {!user.enabled && !user.canRestore && (
               <span id={restoreExplanationId} className="user-restore-explanation">
-                Restore unavailable: this account has no recovery key.
+                {t('admin.restore.unavailableNoKey')}
               </span>
             )}
             {!user.enabled && deletionStatus && (
@@ -327,7 +343,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                 onClick={() => void resendVerification(user)}
               >
                 {busyId === user.id ? <LoaderCircle className="spin" /> : <Mail />}
-                Resend verification
+                {t('admin.actions.resendVerification')}
               </button>
             )}
             <button
@@ -342,13 +358,13 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                 setStatus('')
               }}
             >
-              <KeyRound /> Reset password
+              <KeyRound /> {t('admin.actions.resetPassword')}
             </button>
             <button
               type="button"
               className="icon-button danger"
-              aria-label={`Delete ${user.email}`}
-              title={`Delete ${user.email}`}
+              aria-label={t('admin.actions.delete', { email: user.email })}
+              title={t('admin.actions.delete', { email: user.email })}
               disabled={busyId === user.id}
               onClick={() => void deleteUser(user)}
             >
@@ -373,23 +389,25 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               }
               title={
                 !user.canRestore
-                  ? 'This account has no recovery key and cannot be restored.'
+                  ? t('admin.restore.noKeyTitle')
                   : !restoreAllowed
-                    ? 'This account is past its permanent deletion date and cannot be restored.'
+                    ? t('admin.restore.pastDeadlineTitle')
                   : deletionDeadline
-                    ? `Restore before ${deletionDeadline.toLocaleDateString()}.`
+                    ? t('admin.restore.restoreBeforeTitle', {
+                        date: formatCalendarDate(deletionDeadline, i18n.language),
+                      })
                     : undefined
               }
               onClick={() => void restoreUser(user)}
             >
               {busyId === user.id ? <LoaderCircle className="spin" /> : <RotateCcw />}
-              Restore
+              {t('admin.actions.restore')}
             </button>
             <button
               type="button"
               className="icon-button danger"
-              aria-label={`Permanently delete ${user.email}`}
-              title={`Permanently delete ${user.email}`}
+              aria-label={t('admin.actions.permanentlyDelete', { email: user.email })}
+              title={t('admin.actions.permanentlyDelete', { email: user.email })}
               disabled={busyId === user.id}
               onClick={() => void permanentlyDeleteUser(user)}
             >
@@ -414,20 +432,24 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
       <div className="import-panel">
         <header className="import-header">
           <div>
-            <span className="eyebrow">Administration</span>
-            <h2 id="user-management-title">Manage users</h2>
+            <span className="eyebrow">{t('admin.eyebrow')}</span>
+            <h2 id="user-management-title">{t('admin.title')}</h2>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close user management">
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('admin.close')}>
             <X />
           </button>
         </header>
 
         {view === 'list' ? (
-          <section className="users-view" aria-label="User accounts">
+          <section className="users-view" aria-label={t('admin.toolbar.heading')}>
             <div className="users-toolbar">
               <div>
-                <h3>User accounts</h3>
-                <p>{loading ? 'Loading accounts…' : `${users.length} ${users.length === 1 ? 'account' : 'accounts'}`}</p>
+                <h3>{t('admin.toolbar.heading')}</h3>
+                <p>
+                  {loading
+                    ? t('admin.toolbar.loading')
+                    : t('admin.toolbar.accountsCount', { count: users.length })}
+                </p>
               </div>
               <button
                 type="button"
@@ -438,7 +460,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                   setStatus('')
                 }}
               >
-                <UserPlus aria-hidden="true" /> Add user
+                <UserPlus aria-hidden="true" /> {t('admin.toolbar.addUser')}
               </button>
             </div>
 
@@ -447,7 +469,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               <input
                 id={searchId}
                 type="search"
-                placeholder="Search by email"
+                placeholder={t('admin.search.placeholder')}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 disabled={loading}
@@ -460,12 +482,11 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
             {restoredCredentials && (
               <section className="restored-credentials" aria-labelledby="temporary-password-title">
                 <div>
-                  <span className="eyebrow">Share once</span>
-                  <h4 id="temporary-password-title">Temporary password for {restoredCredentials.email}</h4>
-                  <p>
-                    Send this password securely to the user. They must sign in with it, then enter
-                    their recovery key and choose a new password.
-                  </p>
+                  <span className="eyebrow">{t('admin.restoredCredentials.eyebrow')}</span>
+                  <h4 id="temporary-password-title">
+                    {t('admin.restoredCredentials.title', { email: restoredCredentials.email })}
+                  </h4>
+                  <p>{t('admin.restoredCredentials.description')}</p>
                 </div>
                 <div className="temporary-password-field">
                   <code>{restoredCredentials.temporaryPassword}</code>
@@ -476,10 +497,16 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                       await navigator.clipboard.writeText(restoredCredentials.temporaryPassword)
                       setCopied(true)
                     }}
-                    aria-label={copied ? 'Temporary password copied' : 'Copy temporary password'}
+                    aria-label={
+                      copied
+                        ? t('admin.restoredCredentials.copiedAria')
+                        : t('admin.restoredCredentials.copyAria')
+                    }
                   >
                     {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                    {copied ? 'Copied' : 'Copy'}
+                    {copied
+                      ? t('admin.restoredCredentials.copied')
+                      : t('admin.restoredCredentials.copy')}
                   </button>
                 </div>
                 <button
@@ -490,7 +517,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                     setCopied(false)
                   }}
                 >
-                  I have shared it
+                  {t('admin.restoredCredentials.dismiss')}
                 </button>
               </section>
             )}
@@ -498,25 +525,25 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
             {loading ? (
               <div className="users-loading" role="status">
                 <LoaderCircle className="spin" />
-                Loading users…
+                {t('admin.toolbar.loading')}
               </div>
             ) : (
               <div className="users-list-scroll">
                 {filteredUsers.length === 0 ? (
                   <p className="users-empty">
-                    {users.length === 0 ? 'No users yet.' : 'No users match your search.'}
+                    {users.length === 0 ? t('admin.empty.noUsers') : t('admin.empty.noMatches')}
                   </p>
                 ) : (
                   <>
                     {activeUsers.length > 0 && (
-                      <ul className="users-list users-list-active" aria-label="Active users">
+                      <ul className="users-list users-list-active" aria-label={t('admin.toolbar.activeUsers')}>
                         {activeUsers.map(renderUserRow)}
                       </ul>
                     )}
                     {deletedUsers.length > 0 && (
                       <section className="users-deleted-group" aria-labelledby="deleted-users-title">
                         <div className="users-group-heading">
-                          <h4 id="deleted-users-title">Deleted users</h4>
+                          <h4 id="deleted-users-title">{t('admin.deletedGroup.title')}</h4>
                           <span>{deletedUsers.length}</span>
                         </div>
                         <ul className="users-list users-list-deleted">
@@ -541,15 +568,15 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               }}
               disabled={creating || busyId !== null}
             >
-              <ChevronLeft aria-hidden="true" /> Back to users
+              <ChevronLeft aria-hidden="true" /> {t('admin.back')}
             </button>
 
             {view === 'create' ? (
               <form className="settings-form users-task-form" onSubmit={(event) => void createUser(event)}>
                 <span className="users-task-icon"><UserPlus aria-hidden="true" /></span>
-                <h3>Create a user</h3>
-                <p>Set up email credentials for a new account.</p>
-                <label htmlFor={emailId}>Email</label>
+                <h3>{t('admin.createUser.title')}</h3>
+                <p>{t('admin.createUser.description')}</p>
+                <label htmlFor={emailId}>{t('admin.createUser.emailLabel')}</label>
                 <input
                   id={emailId}
                   type="email"
@@ -559,7 +586,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                   disabled={creating}
                   autoFocus
                 />
-                <label htmlFor={passwordId}>Temporary password</label>
+                <label htmlFor={passwordId}>{t('admin.createUser.passwordLabel')}</label>
                 <input
                   id={passwordId}
                   type="password"
@@ -572,16 +599,16 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                 <div className="import-actions">
                   <button type="submit" className="primary-button" disabled={creating}>
                     {creating ? <LoaderCircle className="spin" /> : <Users />}
-                    Create user
+                    {t('admin.createUser.submit')}
                   </button>
                 </div>
               </form>
             ) : resetFor ? (
               <form className="settings-form users-task-form" onSubmit={(event) => void submitReset(event)}>
                 <span className="users-task-icon"><KeyRound aria-hidden="true" /></span>
-                <h3>Reset password</h3>
-                <p>Choose a new password for <strong>{resetFor.email}</strong>.</p>
-                <label htmlFor={resetPasswordId}>New password</label>
+                <h3>{t('admin.resetPassword.title')}</h3>
+                <p>{t('admin.resetPassword.description', { email: resetFor.email })}</p>
+                <label htmlFor={resetPasswordId}>{t('admin.resetPassword.newPasswordLabel')}</label>
                 <input
                   id={resetPasswordId}
                   type="password"
@@ -595,7 +622,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
                 <div className="import-actions">
                   <button type="submit" className="primary-button" disabled={busyId === resetFor.id}>
                     {busyId === resetFor.id ? <LoaderCircle className="spin" /> : <KeyRound />}
-                    Update password
+                    {t('admin.resetPassword.submit')}
                   </button>
                 </div>
               </form>

@@ -1,7 +1,13 @@
-import { KeyRound, LoaderCircle, Trash2, X } from 'lucide-react'
+import { Globe, KeyRound, LoaderCircle, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { DELETED_USER_RETENTION_DAYS, deletedAccountRetentionCopy } from './accountRetention'
 import { api } from './api'
+import {
+  applyLanguagePreference,
+  readLanguagePreference,
+  type LanguagePreference,
+} from './i18n'
 import { errorMessage } from './utils'
 import { useVault } from './vault/VaultContext'
 
@@ -11,22 +17,29 @@ interface UserSettingsDialogProps {
   onAccountDeleted: () => void
 }
 
+type SettingsSection = 'security' | 'account' | 'language'
+
 export function UserSettingsDialog({
   onClose,
   onPasswordChanged,
   onAccountDeleted,
 }: UserSettingsDialogProps) {
+  const { t } = useTranslation()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const { rewrapForNewPassword } = useVault()
   const currentId = useId()
   const nextId = useId()
   const confirmId = useId()
   const deletePasswordId = useId()
-  const [section, setSection] = useState<'security' | 'account'>('security')
+  const languageId = useId()
+  const [section, setSection] = useState<SettingsSection>('security')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [deletePassword, setDeletePassword] = useState('')
+  const [languagePreference, setLanguagePreference] = useState<LanguagePreference>(() =>
+    readLanguagePreference(),
+  )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -40,11 +53,11 @@ export function UserSettingsDialog({
     event.preventDefault()
     setError('')
     if (!currentPassword || !newPassword) {
-      setError('Enter your current and new password.')
+      setError(t('settings.security.missingFields'))
       return
     }
     if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.')
+      setError(t('settings.security.mismatch'))
       return
     }
     setSubmitting(true)
@@ -63,11 +76,11 @@ export function UserSettingsDialog({
     event.preventDefault()
     setError('')
     if (!deletePassword) {
-      setError('Enter your password to delete your account.')
+      setError(t('settings.account.missingPassword'))
       return
     }
     const confirmed = window.confirm(
-      `Delete your account?\n\nAn administrator can restore it for ${DELETED_USER_RETENTION_DAYS} days, but you will have to provide the restore code to unlock your notes. After that, your account and data are permanently deleted and cannot be restored.`,
+      t('settings.account.confirmPrompt', { days: DELETED_USER_RETENTION_DAYS }),
     )
     if (!confirmed) return
     setSubmitting(true)
@@ -78,6 +91,11 @@ export function UserSettingsDialog({
       setError(errorMessage(reason))
       setSubmitting(false)
     }
+  }
+
+  function changeLanguage(next: LanguagePreference) {
+    setLanguagePreference(next)
+    applyLanguagePreference(next)
   }
 
   return (
@@ -93,16 +111,21 @@ export function UserSettingsDialog({
       <div className="import-panel">
         <header className="import-header">
           <div>
-            <span className="eyebrow">Account</span>
-            <h2 id="user-settings-title">User settings</h2>
+            <span className="eyebrow">{t('settings.eyebrow')}</span>
+            <h2 id="user-settings-title">{t('settings.title')}</h2>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close settings">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t('settings.close')}
+          >
             <X />
           </button>
         </header>
 
         <div className="settings-layout">
-          <nav className="settings-section-nav" aria-label="Settings sections">
+          <nav className="settings-section-nav" aria-label={t('settings.title')}>
             <button
               type="button"
               className={section === 'security' ? 'active' : ''}
@@ -112,7 +135,18 @@ export function UserSettingsDialog({
                 setError('')
               }}
             >
-              Security
+              {t('settings.nav.security')}
+            </button>
+            <button
+              type="button"
+              className={section === 'language' ? 'active' : ''}
+              aria-current={section === 'language' ? 'page' : undefined}
+              onClick={() => {
+                setSection('language')
+                setError('')
+              }}
+            >
+              {t('settings.nav.language')}
             </button>
             <button
               type="button"
@@ -123,14 +157,14 @@ export function UserSettingsDialog({
                 setError('')
               }}
             >
-              Account
+              {t('settings.nav.account')}
             </button>
           </nav>
 
           {section === 'security' ? (
             <form onSubmit={(event) => void submitPasswordChange(event)} className="settings-form">
-              <p>Change your password. You will be signed out after a successful update.</p>
-              <label htmlFor={currentId}>Current password</label>
+              <p>{t('settings.security.description')}</p>
+              <label htmlFor={currentId}>{t('settings.security.currentPasswordLabel')}</label>
               <input
                 id={currentId}
                 type="password"
@@ -139,7 +173,7 @@ export function UserSettingsDialog({
                 onChange={(event) => setCurrentPassword(event.target.value)}
                 disabled={submitting}
               />
-              <label htmlFor={nextId}>New password</label>
+              <label htmlFor={nextId}>{t('settings.security.newPasswordLabel')}</label>
               <input
                 id={nextId}
                 type="password"
@@ -148,7 +182,7 @@ export function UserSettingsDialog({
                 onChange={(event) => setNewPassword(event.target.value)}
                 disabled={submitting}
               />
-              <label htmlFor={confirmId}>Confirm new password</label>
+              <label htmlFor={confirmId}>{t('settings.security.confirmPasswordLabel')}</label>
               <input
                 id={confirmId}
                 type="password"
@@ -157,25 +191,51 @@ export function UserSettingsDialog({
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 disabled={submitting}
               />
-              {error && <p className="inline-error" role="alert">{error}</p>}
+              {error && (
+                <p className="inline-error" role="alert">
+                  {error}
+                </p>
+              )}
               <div className="import-actions">
                 <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>
-                  Cancel
+                  {t('common.actions.cancel')}
                 </button>
                 <button type="submit" className="primary-button" disabled={submitting}>
                   {submitting ? <LoaderCircle className="spin" /> : <KeyRound />}
-                  Update password
+                  {t('settings.security.submit')}
                 </button>
               </div>
             </form>
+          ) : section === 'language' ? (
+            <div className="settings-form">
+              <p>{t('settings.language.hint')}</p>
+              <label htmlFor={languageId}>{t('settings.language.title')}</label>
+              <div className="settings-language-field">
+                <Globe aria-hidden="true" />
+                <select
+                  id={languageId}
+                  value={languagePreference}
+                  onChange={(event) => changeLanguage(event.target.value as LanguagePreference)}
+                >
+                  <option value="auto">{t('settings.language.auto')}</option>
+                  <option value="en">{t('settings.language.en')}</option>
+                  <option value="pl">{t('settings.language.pl')}</option>
+                </select>
+              </div>
+              <div className="import-actions">
+                <button type="button" className="secondary-button" onClick={onClose}>
+                  {t('common.actions.done')}
+                </button>
+              </div>
+            </div>
           ) : (
             <form onSubmit={(event) => void submitAccountDeletion(event)} className="settings-form danger-zone">
               <div>
-                <span className="eyebrow">Danger zone</span>
-                <h3>Delete account</h3>
-                <p>{deletedAccountRetentionCopy}</p>
+                <span className="eyebrow">{t('settings.account.dangerZoneEyebrow')}</span>
+                <h3>{t('settings.account.deleteTitle')}</h3>
+                <p>{deletedAccountRetentionCopy()}</p>
               </div>
-              <label htmlFor={deletePasswordId}>Password</label>
+              <label htmlFor={deletePasswordId}>{t('settings.account.passwordLabel')}</label>
               <input
                 id={deletePasswordId}
                 type="password"
@@ -184,11 +244,15 @@ export function UserSettingsDialog({
                 onChange={(event) => setDeletePassword(event.target.value)}
                 disabled={submitting}
               />
-              {error && <p className="inline-error" role="alert">{error}</p>}
+              {error && (
+                <p className="inline-error" role="alert">
+                  {error}
+                </p>
+              )}
               <div className="import-actions">
                 <button type="submit" className="danger-button" disabled={submitting}>
                   {submitting ? <LoaderCircle className="spin" /> : <Trash2 />}
-                  Delete account
+                  {t('settings.account.submit')}
                 </button>
               </div>
             </form>

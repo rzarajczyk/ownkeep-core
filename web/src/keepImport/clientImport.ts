@@ -8,6 +8,7 @@ import { encryptLabelName } from '../crypto/labelCodec'
 import { generateNoteKey } from '../crypto/keys'
 import { buildNotePayload, encryptNotePayload, wrapNoteKey } from '../crypto/noteCodec'
 import { api } from '../api'
+import { i18n } from '../i18n'
 import { setCachedNoteKey } from '../notesCipher'
 import type { NoteType } from '../types'
 
@@ -123,7 +124,7 @@ export async function importKeepZip(
           Object.keys(entries).find((name) => name.endsWith(relative) || basename(name) === basename(relative)) ??
           null
         if (!candidate) {
-          warnings.push(`Missing attachment ${relative} for ${path}`)
+          warnings.push(i18n.t('import.warnings.missingAttachment', { relative, path }))
           continue
         }
         const fileBytes = entries[candidate]!
@@ -154,7 +155,12 @@ export async function importKeepZip(
       imported += 1
     } catch (error) {
       skipped += 1
-      warnings.push(`Skipped ${path}: ${error instanceof Error ? error.message : 'unknown error'}`)
+      warnings.push(
+        i18n.t('import.warnings.skipped', {
+          path,
+          error: error instanceof Error ? error.message : i18n.t('import.warnings.unknownError'),
+        }),
+      )
     }
   }
 

@@ -1,21 +1,25 @@
 import DOMPurify from 'dompurify'
 import type { ReactNode } from 'react'
+import { ApiError } from './api'
+import { i18n } from './i18n'
 import type { Note, NoteWrite } from './types'
 
 export const NOTE_COLORS = [
-  { value: '#ffffff', label: 'Default' },
-  { value: '#f28b82', label: 'Red' },
-  { value: '#fbbc04', label: 'Orange' },
-  { value: '#fff475', label: 'Yellow' },
-  { value: '#ccff90', label: 'Green' },
-  { value: '#a7ffeb', label: 'Teal' },
-  { value: '#cbf0f8', label: 'Blue' },
-  { value: '#aecbfa', label: 'Dark blue' },
-  { value: '#d7aefb', label: 'Purple' },
-  { value: '#fdcfe8', label: 'Pink' },
-  { value: '#e6c9a8', label: 'Brown' },
-  { value: '#e8eaed', label: 'Gray' },
+  { value: '#ffffff', labelKey: 'default' },
+  { value: '#f28b82', labelKey: 'red' },
+  { value: '#fbbc04', labelKey: 'orange' },
+  { value: '#fff475', labelKey: 'yellow' },
+  { value: '#ccff90', labelKey: 'green' },
+  { value: '#a7ffeb', labelKey: 'teal' },
+  { value: '#cbf0f8', labelKey: 'blue' },
+  { value: '#aecbfa', labelKey: 'darkBlue' },
+  { value: '#d7aefb', labelKey: 'purple' },
+  { value: '#fdcfe8', labelKey: 'pink' },
+  { value: '#e6c9a8', labelKey: 'brown' },
+  { value: '#e8eaed', labelKey: 'gray' },
 ] as const
+
+export type NoteColorLabelKey = (typeof NOTE_COLORS)[number]['labelKey']
 
 export function createId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -56,9 +60,9 @@ export function isNoteEmpty(note: Note) {
 }
 
 export function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (bytes < 1024) return i18n.t('common.bytes.b', { value: bytes })
+  if (bytes < 1024 ** 2) return i18n.t('common.bytes.kb', { value: (bytes / 1024).toFixed(1) })
+  return i18n.t('common.bytes.mb', { value: (bytes / 1024 ** 2).toFixed(1) })
 }
 
 export function linkify(text: string): ReactNode[] {
@@ -109,7 +113,37 @@ export function normalizeIndents<T extends { indent?: number }>(items: T[]): Arr
 }
 
 export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Something went wrong.'
+  if (error instanceof ApiError) {
+    const translated = translateApiError(error)
+    if (translated) return translated
+  }
+  if (error instanceof Error && error.message) return error.message
+  return i18n.t('errors.generic')
+}
+
+function translateApiError(error: ApiError): string | null {
+  const code = error.code
+  if (!code) return null
+
+  switch (code) {
+    case 'connection_failed':
+      return i18n.t('errors.api.connectionFailed')
+    case 'session_expired':
+      return i18n.t('errors.api.sessionExpired')
+    case 'request_failed':
+      return i18n.t('errors.api.requestFailed', { status: error.status })
+    case 'upload_failed':
+      return i18n.t('errors.api.uploadFailed')
+    case 'invalid_upload_response':
+      return i18n.t('errors.api.invalidUploadResponse')
+    case 'attachment_load_failed':
+      return i18n.t('errors.api.attachmentLoadFailed')
+    default: {
+      const key = `errors.api.codes.${code}`
+      if (i18n.exists(key)) return i18n.t(key)
+      return null
+    }
+  }
 }
 
 export function optimisticNote(

@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { encryptLabelName } from './crypto/labelCodec'
 import { NoteCard } from './NoteCard'
@@ -62,6 +63,7 @@ function noteMatchesQuery(note: Note, needle: string): boolean {
 }
 
 export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
+  const { t } = useTranslation()
   const { vaultKey } = useVault()
   const [state, dispatch] = useReducer(notesReducer, initialNotesState)
   const [archived, setArchived] = useState(false)
@@ -319,10 +321,10 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         version: wire.version,
         updatedAt: wire.updatedAt,
       })
-      setToast(wire.archived ? 'Note archived' : 'Note restored')
+      setToast(wire.archived ? t('notes.toasts.archived') : t('notes.toasts.restored'))
     } catch (reason) {
       replaceNote(note)
-      setToast(`${errorMessage(reason)} The note was restored.`)
+      setToast(t('notes.toasts.restoredAfterArchiveError', { error: errorMessage(reason) }))
     }
   }
 
@@ -333,21 +335,21 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       await api.deleteNote(note.id)
     } catch (reason) {
       dispatch({ type: 'upsert', note })
-      setToast(`${errorMessage(reason)} The note could not be discarded.`)
+      setToast(t('notes.toasts.restoredAfterDiscardError', { error: errorMessage(reason) }))
     }
   }
 
   async function deleteNote(note: Note) {
-    if (!window.confirm('Delete this note permanently?')) return false
+    if (!window.confirm(t('notes.deleteConfirm'))) return false
     dispatch({ type: 'remove', id: note.id })
     setSearchResults((results) => results?.filter((item) => item.id !== note.id) ?? null)
     try {
       await api.deleteNote(note.id)
-      setToast('Note deleted')
+      setToast(t('notes.toasts.deleted'))
       return true
     } catch (reason) {
       dispatch({ type: 'upsert', note })
-      setToast(`${errorMessage(reason)} The note was restored.`)
+      setToast(t('notes.toasts.restoredAfterDeleteError', { error: errorMessage(reason) }))
       throw reason
     }
   }
@@ -418,47 +420,47 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           type="button"
           className="icon-button mobile-menu"
           onClick={() => setNavOpen((open) => !open)}
-          aria-label="Toggle navigation"
+          aria-label={t('shell.toggleNav')}
           aria-expanded={navOpen}
         >
           <Menu />
         </button>
-        <a className="app-brand" href="/" aria-label="OwnKeep notes">
+        <a className="app-brand" href="/" aria-label={t('shell.brand')}>
           <span className="brand-mark small" aria-hidden="true">
             <KeyRound />
           </span>
-          <span>OwnKeep</span>
+          <span>{t('common.appName')}</span>
         </a>
         <div className="search-box" role="search">
           {searching ? <LoaderCircle className="spin" /> : <Search />}
           <label className="sr-only" htmlFor="note-search">
-            Search notes
+            {t('shell.search.label')}
           </label>
           <input
             id="note-search"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search notes"
+            placeholder={t('shell.search.placeholder')}
           />
           {query && (
             <button
               type="button"
               className="icon-button small"
               onClick={() => setQuery('')}
-              aria-label="Clear search"
+              aria-label={t('shell.search.clear')}
             >
               <X />
             </button>
           )}
         </div>
-        <Tooltip label="Sync notes">
+        <Tooltip label={t('shell.sync')}>
           <button
             type="button"
             className="icon-button sync-button"
             onClick={() => void loadNotes(archived, true)}
             disabled={syncing || waitingForVault}
-            aria-label="Sync notes"
+            aria-label={t('shell.sync')}
           >
             <RefreshCw className={syncing ? 'spin' : ''} />
           </button>
@@ -487,7 +489,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                   setSettingsOpen(true)
                 }}
               >
-                <Settings aria-hidden="true" /> User settings
+                <Settings aria-hidden="true" /> {t('shell.account.userSettings')}
               </button>
               {user.role === 'ADMIN' && (
                 <button
@@ -498,7 +500,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                     setUsersOpen(true)
                   }}
                 >
-                  <Users aria-hidden="true" /> Manage users
+                  <Users aria-hidden="true" /> {t('shell.account.manageUsers')}
                 </button>
               )}
               <button
@@ -509,18 +511,18 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                   setImportOpen(true)
                 }}
               >
-                <FileUp aria-hidden="true" /> Import from Google Keep
+                <FileUp aria-hidden="true" /> {t('shell.account.importFromKeep')}
               </button>
             </div>
           )}
-          <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
+          <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label={t('common.actions.signOut')}>
             <LogOut />
           </button>
         </div>
       </header>
 
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
-        <nav aria-label="Notes">
+        <nav aria-label={t('shell.nav.notes')}>
           <div className="nav-group">
             <button
               type="button"
@@ -531,10 +533,10 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                 setNavOpen(false)
               }}
             >
-              <StickyNote aria-hidden="true" /> Notes
+              <StickyNote aria-hidden="true" /> {t('shell.nav.notes')}
             </button>
             {knownLabels.length > 0 && (
-              <div className="nav-subitems" role="group" aria-label="Labels">
+              <div className="nav-subitems" role="group" aria-label={t('shell.nav.labels')}>
                 {knownLabels.map((label) => {
                   const active =
                     !archived &&
@@ -568,7 +570,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               setNavOpen(false)
             }}
           >
-            <Archive aria-hidden="true" /> Archive
+            <Archive aria-hidden="true" /> {t('shell.nav.archive')}
           </button>
         </nav>
         <div className="mobile-account">
@@ -577,7 +579,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               {user.email.slice(0, 1).toUpperCase()}
             </span>
             <span className="user-login">{user.email}</span>
-            <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
+            <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label={t('common.actions.signOut')}>
               <LogOut />
             </button>
           </div>
@@ -589,7 +591,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               setSettingsOpen(true)
             }}
           >
-            <Settings aria-hidden="true" /> User settings
+            <Settings aria-hidden="true" /> {t('shell.account.userSettings')}
           </button>
           {user.role === 'ADMIN' && (
             <button
@@ -600,7 +602,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                 setUsersOpen(true)
               }}
             >
-              <Users aria-hidden="true" /> Manage users
+              <Users aria-hidden="true" /> {t('shell.account.manageUsers')}
             </button>
           )}
           <button
@@ -611,29 +613,29 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               setImportOpen(true)
             }}
           >
-            <FileUp aria-hidden="true" /> Import from Google Keep
+            <FileUp aria-hidden="true" /> {t('shell.account.importFromKeep')}
           </button>
         </div>
         <p className="sidebar-status">
           <span className={navigator.onLine ? 'online-dot' : 'offline-dot'} />
-          {navigator.onLine ? 'Connected' : 'Offline'}
+          {navigator.onLine ? t('common.status.online') : t('common.status.offline')}
         </p>
       </aside>
 
       <main className="workspace">
         <div className="workspace-heading">
           <div>
-            <span className="eyebrow">{query ? 'Search results' : 'Workspace'}</span>
+            <span className="eyebrow">{query ? t('notes.heading.searchResults') : t('notes.heading.workspace')}</span>
             <h1>
               {archived
-                ? 'Archive'
+                ? t('notes.heading.archive')
                 : selectedLabel
                   ? selectedLabel
-                  : 'Your notes'}
+                  : t('notes.heading.yourNotes')}
             </h1>
           </div>
           {!archived && (
-            <div className="create-actions" aria-label="Create note">
+            <div className="create-actions" aria-label={t('notes.addNote')}>
               <button
                 type="button"
                 className="primary-button"
@@ -641,7 +643,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                 disabled={creating || waitingForVault}
               >
                 {creating ? <LoaderCircle className="spin" /> : <Plus />}
-                Add note
+                {t('notes.addNote')}
               </button>
             </div>
           )}
@@ -650,17 +652,17 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         {searchError && <div className="inline-error" role="alert">{searchError}</div>}
         {loadError && (
           <div className="state-panel error-state" role="alert">
-            <h2>Couldn’t load your notes</h2>
+            <h2>{t('notes.loadError.title')}</h2>
             <p>{loadError}</p>
             <button type="button" className="secondary-button" onClick={() => void loadNotes(archived)}>
-              <RefreshCw /> Try again
+              <RefreshCw /> {t('notes.loadError.retry')}
             </button>
           </div>
         )}
         {(waitingForVault || loading) && !loadError && (
           <div className="state-panel" role="status">
             <LoaderCircle className="spin large" />
-            <p>Gathering your notes…</p>
+            <p>{t('notes.loading')}</p>
           </div>
         )}
         {!waitingForVault && !loading && !loadError && visibleNotes.length === 0 && (
@@ -670,25 +672,25 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             </span>
             <h2>
               {query
-                ? 'No matching notes'
+                ? t('notes.empty.noMatchTitle')
                 : archived
-                  ? 'Your archive is empty'
+                  ? t('notes.empty.archiveEmptyTitle')
                   : selectedLabel
-                    ? `No notes labeled “${selectedLabel}”`
-                    : 'A quiet place for your thoughts'}
+                    ? t('notes.empty.labelEmptyTitle', { label: selectedLabel })
+                    : t('notes.empty.noNotesTitle')}
             </h2>
             <p>
               {query
-                ? 'Try a different word or clear your search.'
+                ? t('notes.empty.noMatchBody')
                 : archived
-                  ? 'Archived notes will stay safely tucked away here.'
+                  ? t('notes.empty.archiveEmptyBody')
                   : selectedLabel
-                    ? 'Create a note or add this label to an existing one.'
-                    : 'Create a note to get started.'}
+                    ? t('notes.empty.labelEmptyBody')
+                    : t('notes.empty.noNotesBody')}
             </p>
             {!archived && !query && (
               <button type="button" className="primary-button" onClick={() => void createNote()}>
-                <Plus /> Add note
+                <Plus /> {t('notes.addNote')}
               </button>
             )}
           </div>
@@ -698,16 +700,16 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             className="notes-board"
             aria-label={
               archived
-                ? 'Archived notes'
+                ? t('notes.heading.archive')
                 : selectedLabel
-                  ? `Notes labeled ${selectedLabel}`
-                  : 'Notes'
+                  ? selectedLabel
+                  : t('shell.nav.notes')
             }
           >
             {pinnedNotes.length > 0 && (
               <section className="notes-section" aria-labelledby="pinned-notes-heading">
                 <h2 id="pinned-notes-heading" className="notes-section-title">
-                  Pinned
+                  {t('notes.sections.pinned')}
                 </h2>
                 <NotesMasonry notes={pinnedNotes} renderNote={renderNoteCard} />
               </section>
@@ -716,11 +718,11 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               <section
                 className="notes-section"
                 aria-labelledby={pinnedNotes.length > 0 ? 'other-notes-heading' : undefined}
-                aria-label={pinnedNotes.length > 0 ? undefined : archived ? 'Archived notes' : 'Notes'}
+                aria-label={pinnedNotes.length > 0 ? undefined : archived ? t('notes.heading.archive') : t('shell.nav.notes')}
               >
                 {pinnedNotes.length > 0 && (
                   <h2 id="other-notes-heading" className="notes-section-title">
-                    Others
+                    {t('notes.sections.others')}
                   </h2>
                 )}
                 <NotesMasonry notes={otherNotes} renderNote={renderNoteCard} />
@@ -737,7 +739,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           cancelIfEmpty={pendingNewNoteId === selectedNote.id}
           startInEditMode={pendingNewNoteId === selectedNote.id}
           ensureLabelIds={async (names) => {
-            if (!vaultKey) throw new Error('Vault is locked')
+            if (!vaultKey) throw new Error(t('errors.vaultLocked'))
             const ids: string[] = []
             for (const name of names) {
               ids.push(await resolveLabelId(name, vaultKey))
@@ -761,7 +763,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             loaded.current.clear()
             cursors.current = {}
             await loadNotes(archived)
-            setToast('Google Keep import completed')
+            setToast(t('import.toastCompleted'))
           }}
         />
       )}
@@ -778,7 +780,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       {toast && (
         <div className="toast" role="status">
           {toast}
-          <button type="button" className="icon-button small" onClick={() => setToast('')} aria-label="Dismiss message">
+          <button type="button" className="icon-button small" onClick={() => setToast('')} aria-label={t('shell.toasts.dismiss')}>
             <X />
           </button>
         </div>

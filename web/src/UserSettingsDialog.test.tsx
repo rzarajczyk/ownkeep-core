@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyLanguagePreference } from './i18n'
 import { UserSettingsDialog } from './UserSettingsDialog'
 
 const api = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ describe('UserSettingsDialog account deletion', () => {
   const onAccountDeleted = vi.fn()
 
   beforeEach(() => {
+    applyLanguagePreference('en')
     HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
       this.setAttribute('open', '')
     })
@@ -50,6 +52,17 @@ describe('UserSettingsDialog account deletion', () => {
     expect(screen.getByText(/administrator can restore/i)).toBeVisible()
     expect(screen.getByText(/restore code to unlock your notes/i)).toBeVisible()
     expect(screen.getByText(/cannot be restored/i)).toBeVisible()
+  })
+
+  it('lets the user choose Polish from the language section', async () => {
+    const browser = userEvent.setup()
+    renderDialog()
+
+    await browser.click(screen.getByRole('button', { name: 'Language' }))
+    expect(screen.getByText(/choose the app language/i)).toBeVisible()
+    await browser.selectOptions(screen.getByLabelText('Language'), 'pl')
+    expect(screen.getByRole('heading', { name: 'Ustawienia użytkownika' })).toBeVisible()
+    expect(screen.getByLabelText('Język')).toHaveValue('pl')
   })
 
   it('requires a password before deleting the account', async () => {

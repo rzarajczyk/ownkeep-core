@@ -16,13 +16,19 @@ const API_PREFIX = '/api'
 
 export class ApiError extends Error {
   readonly status: number
+  readonly code?: string
   readonly details?: unknown
 
-  constructor(message: string, status: number, details?: unknown) {
+  constructor(message: string, status: number, details?: unknown, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.details = details
+    this.code =
+      code ??
+      (details && typeof details === 'object' && details !== null && 'code' in details
+        ? String((details as { code: unknown }).code)
+        : undefined)
   }
 }
 
@@ -59,7 +65,7 @@ class ApiClient {
       response = await fetch(`${API_PREFIX}${path}`, { ...init, headers })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error
-      throw new ApiError('Unable to reach OwnKeep. Check your connection.', 0, error)
+      throw new ApiError('Unable to reach OwnKeep. Check your connection.', 0, error, 'connection_failed')
     }
 
     if (response.status === 401 && authenticated && notifyUnauthorized) {
@@ -67,13 +73,22 @@ class ApiClient {
     }
     if (!response.ok) {
       const details = await response.json().catch(() => null)
+      const hasCode =
+        details && typeof details === 'object' && details !== null && 'code' in details
       const message =
         details && typeof details === 'object' && 'message' in details
           ? String(details.message)
           : response.status === 401
             ? 'Your session has expired. Please sign in again.'
             : `Request failed (${response.status})`
-      throw new ApiError(message, response.status, details)
+      const fallbackCode =
+        response.status === 401 ? 'session_expired' : 'request_failed'
+      throw new ApiError(
+        message,
+        response.status,
+        details ?? { status: response.status },
+        hasCode ? undefined : fallbackCode,
+      )
     }
     if (response.status === 204) return undefined as T
     return response.json() as Promise<T>
@@ -290,24 +305,48 @@ class ApiClient {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
       }
-      xhr.onerror = () => reject(new ApiError('Upload failed. Check your connection.', 0))
+      xhr.onerror = () => reject(new ApiError('Upload failed. Check your connection.', 0, undefined, 'upload_failed'))
       xhr.onload = () => {
         if (xhr.status === 401) this.unauthorizedHandler?.()
         if (xhr.status < 200 || xhr.status >= 300) {
           let message = `Upload failed (${xhr.status})`
+          let details: unknown
           try {
-            const details = JSON.parse(xhr.responseText) as { message?: string }
-            if (details.message) message = details.message
+            details = JSON.parse(xhr.responseText) as { message?: string; code?: string }
+            if (
+              details &&
+              typeof details === 'object' &&
+              'message' in details &&
+              details.message
+            ) {
+              message = String(details.message)
+            }
           } catch {
             // Keep the status-based message for non-JSON responses.
           }
-          reject(new ApiError(message, xhr.status))
+          const hasCode =
+            details && typeof details === 'object' && details !== null && 'code' in details
+          reject(
+            new ApiError(
+              message,
+              xhr.status,
+              details ?? { status: xhr.status },
+              hasCode ? undefined : 'upload_failed',
+            ),
+          )
           return
         }
         try {
           resolve(JSON.parse(xhr.responseText) as EncryptedAttachmentWire)
         } catch {
-          reject(new ApiError('The server returned an invalid upload response.', xhr.status))
+          reject(
+            new ApiError(
+              'The server returned an invalid upload response.',
+              xhr.status,
+              undefined,
+              'invalid_upload_response',
+            ),
+          )
         }
       }
       const body = new FormData()
@@ -332,7 +371,9 @@ class ApiClient {
     if (this.token) headers.set('Authorization', `Bearer ${this.token}`)
     const response = await fetch(`${API_PREFIX}${path}`, { headers, signal })
     if (response.status === 401) this.unauthorizedHandler?.()
-    if (!response.ok) throw new ApiError('Could not load attachment.', response.status)
+    if (!response.ok) {
+      throw new ApiError('Could not load attachment.', response.status, undefined, 'attachment_load_failed')
+    }
     return response.arrayBuffer()
   }
 }

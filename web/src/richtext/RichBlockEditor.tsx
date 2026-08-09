@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { useEffect, useRef } from 'react'
+import { i18n } from '../i18n'
 import type { Attachment } from '../types'
 import { blockExtensions } from './extensions'
 import {
@@ -24,8 +25,8 @@ type RichBlockEditorProps = {
 export function RichBlockEditor({
   value,
   attachments = [],
-  placeholder = 'Write a note…',
-  'aria-label': ariaLabel = 'Note content',
+  placeholder = i18n.t('editor.contentPlaceholder'),
+  'aria-label': ariaLabel = i18n.t('editor.contentAria'),
   pendingOffset = null,
   onPendingOffsetConsumed,
   onChange,

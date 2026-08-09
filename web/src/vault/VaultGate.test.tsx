@@ -64,7 +64,7 @@ describe('VaultSetup', () => {
     render(<VaultSetup passwordHint="password" onReady={vi.fn()} />)
 
     expect(await screen.findByRole('heading', { name: 'Save your recovery key' })).toBeInTheDocument()
-    expect(screen.getByText(/won't be able to see this key again/i)).toBeInTheDocument()
+    expect(screen.getByText(/won[’']t be able to see this key again/i)).toBeInTheDocument()
     expect(screen.getByDisplayValue('recovery-key-value')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Download key as file' }))

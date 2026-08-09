@@ -1,7 +1,9 @@
 import { Download, FileText, LoaderCircle, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { decryptAttachmentBytes } from './crypto/attachmentCodec'
+import { i18n } from './i18n'
 import { getCachedNoteKey } from './notesCipher'
 import type { Attachment } from './types'
 import { errorMessage, formatBytes } from './utils'
@@ -20,7 +22,7 @@ async function decryptAttachmentBlob(
   signal?: AbortSignal,
 ): Promise<Blob> {
   const noteKey = getCachedNoteKey(noteId)
-  if (!noteKey) throw new Error('Note key is not available')
+  if (!noteKey) throw new Error(i18n.t('notes.attachment.noteKeyUnavailable'))
   const cipher = await api.attachmentCipherBlob(attachment.id, attachment.url, signal)
   const plain = await decryptAttachmentBytes(
     noteKey,
@@ -38,6 +40,7 @@ export function AttachmentView({
   compact = false,
   onDelete,
 }: AttachmentViewProps) {
+  const { t } = useTranslation()
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(attachment.kind === 'IMAGE')
   const [downloading, setDownloading] = useState(false)
@@ -98,19 +101,22 @@ export function AttachmentView({
     }
   }
 
+  const downloadLabel = t('notes.attachment.download', { filename: attachment.originalFilename })
+  const deleteLabel = t('notes.attachment.delete', { filename: attachment.originalFilename })
+
   if (attachment.kind === 'IMAGE') {
     return (
       <figure className={`attachment-image ${compact ? 'compact' : ''}`}>
         {loading && (
           <span className="attachment-loading">
-            <LoaderCircle className="spin" aria-hidden="true" /> Loading image
+            <LoaderCircle className="spin" aria-hidden="true" /> {t('notes.attachment.loadingImage')}
           </span>
         )}
         {objectUrl && (
           <img src={objectUrl} alt={attachment.originalFilename} loading="lazy" />
         )}
         <div className="attachment-image-actions">
-          <Tooltip label={`Download ${attachment.originalFilename}`}>
+          <Tooltip label={downloadLabel}>
             <button
               type="button"
               className="icon-button"
@@ -119,19 +125,19 @@ export function AttachmentView({
                 void download()
               }}
               disabled={downloading || loading}
-              aria-label={`Download ${attachment.originalFilename}`}
+              aria-label={downloadLabel}
             >
               {downloading ? <LoaderCircle className="spin" /> : <Download />}
             </button>
           </Tooltip>
           {!compact && onDelete && (
-            <Tooltip label={`Delete ${attachment.originalFilename}`}>
+            <Tooltip label={deleteLabel}>
               <button
                 type="button"
                 className="icon-button danger"
                 onClick={remove}
                 disabled={deleting}
-                aria-label={`Delete ${attachment.originalFilename}`}
+                aria-label={deleteLabel}
               >
                 {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
               </button>
@@ -157,25 +163,25 @@ export function AttachmentView({
         <span>{attachment.originalFilename}</span>
         <small>{formatBytes(attachment.sizeBytes)}</small>
       </button>
-      <Tooltip label={`Download ${attachment.originalFilename}`}>
+      <Tooltip label={downloadLabel}>
         <button
           type="button"
           className="icon-button"
           onClick={download}
           disabled={loading || downloading}
-          aria-label={`Download ${attachment.originalFilename}`}
+          aria-label={downloadLabel}
         >
           {loading || downloading ? <LoaderCircle className="spin" /> : <Download />}
         </button>
       </Tooltip>
       {!compact && onDelete && (
-        <Tooltip label={`Delete ${attachment.originalFilename}`}>
+        <Tooltip label={deleteLabel}>
           <button
             type="button"
             className="icon-button danger"
             onClick={remove}
             disabled={deleting}
-            aria-label={`Delete ${attachment.originalFilename}`}
+            aria-label={deleteLabel}
           >
             {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
           </button>

@@ -1,5 +1,6 @@
 import { KeyRound, LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { errorMessage } from './utils'
 
 interface LoginProps {
@@ -10,6 +11,7 @@ interface LoginProps {
 }
 
 export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
+  const { t } = useTranslation()
   const emailId = useId()
   const passwordId = useId()
   const [email, setEmail] = useState('')
@@ -20,7 +22,7 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!email.trim() || !password) {
-      setError('Enter your email and password.')
+      setError(t('auth.login.missingFields'))
       return
     }
     const controller = new AbortController()
@@ -38,16 +40,16 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
     <>
       {onBack && (
         <button type="button" className="landing-back" onClick={onBack} disabled={submitting}>
-          Back
+          {t('auth.login.back')}
         </button>
       )}
       <div className={`login-copy${embedded ? ' login-copy--compact' : ''}`}>
-        <span className="eyebrow">OwnKeep</span>
-        <h1 id="login-heading">Welcome back</h1>
-        <p>Sign in to open your private workspace.</p>
+        <span className="eyebrow">{t('auth.login.eyebrow')}</span>
+        <h1 id="login-heading">{t('auth.login.heading')}</h1>
+        <p>{t('auth.login.subtitle')}</p>
       </div>
       <form onSubmit={submit} className="login-form">
-        <label htmlFor={emailId}>Email</label>
+        <label htmlFor={emailId}>{t('auth.login.emailLabel')}</label>
         <input
           id={emailId}
           name="email"
@@ -58,7 +60,7 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
           onChange={(event) => setEmail(event.target.value)}
           disabled={submitting}
         />
-        <label htmlFor={passwordId}>Password</label>
+        <label htmlFor={passwordId}>{t('auth.login.passwordLabel')}</label>
         <div className="password-field">
           <LockKeyhole aria-hidden="true" />
           <input
@@ -78,10 +80,10 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
         )}
         <button type="submit" className="primary-button" disabled={submitting}>
           {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? t('auth.login.submitting') : t('auth.login.submit')}
         </button>
       </form>
-      <p className="privacy-note">Your notes are encrypted in this browser before they reach the server.</p>
+      <p className="privacy-note">{t('auth.login.privacyNote')}</p>
     </>
   )
 
@@ -94,7 +96,7 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
           <span className="brand-mark" aria-hidden="true">
             <KeyRound />
           </span>
-          <span>OwnKeep</span>
+          <span>{t('common.appName')}</span>
         </div>
         {form}
       </section>
