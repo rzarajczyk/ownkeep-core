@@ -272,6 +272,10 @@ describe('NoteEditor', () => {
       'n1',
       expect.objectContaining({ contentRaw: 'Hello from edit' }),
       expect.anything(),
+      expect.objectContaining({
+        clientUpdatedAt: expect.any(String),
+        clientMutationId: expect.any(String),
+      }),
     )
   })
 

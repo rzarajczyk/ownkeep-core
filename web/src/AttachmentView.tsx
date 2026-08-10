@@ -13,6 +13,7 @@ interface AttachmentViewProps {
   noteId: string
   attachment: Attachment
   compact?: boolean
+  online?: boolean
   onDelete?: (id: string) => Promise<void>
 }
 
@@ -38,23 +39,30 @@ export function AttachmentView({
   noteId,
   attachment,
   compact = false,
+  online = typeof navigator === 'undefined' ? true : navigator.onLine,
   onDelete,
 }: AttachmentViewProps) {
   const { t } = useTranslation()
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(attachment.kind === 'IMAGE')
+  const [loading, setLoading] = useState(attachment.kind === 'IMAGE' && online)
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (attachment.kind !== 'IMAGE') return
+    if (!online) {
+      setLoading(false)
+      setError(t('notes.offline.attachmentsRequireConnection'))
+      return
+    }
     const controller = new AbortController()
     let url: string | null = null
     decryptAttachmentBlob(noteId, attachment, controller.signal)
       .then((blob) => {
         url = URL.createObjectURL(blob)
         setObjectUrl(url)
+        setError('')
       })
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
@@ -66,9 +74,13 @@ export function AttachmentView({
       controller.abort()
       if (url) URL.revokeObjectURL(url)
     }
-  }, [attachment, noteId])
+  }, [attachment, noteId, online, t])
 
   async function download() {
+    if (!online) {
+      setError(t('notes.offline.attachmentsRequireConnection'))
+      return
+    }
     setError('')
     setDownloading(true)
     try {
@@ -124,7 +136,7 @@ export function AttachmentView({
                 event.stopPropagation()
                 void download()
               }}
-              disabled={downloading || loading}
+              disabled={downloading || loading || !online}
               aria-label={downloadLabel}
             >
               {downloading ? <LoaderCircle className="spin" /> : <Download />}
@@ -159,7 +171,7 @@ export function AttachmentView({
   return (
     <div className="attachment-file">
       <FileText aria-hidden="true" />
-      <button type="button" className="file-download" onClick={download} disabled={loading}>
+      <button type="button" className="file-download" onClick={download} disabled={loading || !online}>
         <span>{attachment.originalFilename}</span>
         <small>{formatBytes(attachment.sizeBytes)}</small>
       </button>
@@ -168,7 +180,7 @@ export function AttachmentView({
           type="button"
           className="icon-button"
           onClick={download}
-          disabled={loading || downloading}
+          disabled={loading || downloading || !online}
           aria-label={downloadLabel}
         >
           {loading || downloading ? <LoaderCircle className="spin" /> : <Download />}

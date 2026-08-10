@@ -8,9 +8,10 @@ interface LoginProps {
   onBack?: () => void
   /** When true, omit the outer page chrome (useful for hosted shells). */
   embedded?: boolean
+  banner?: string
 }
 
-export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
+export function Login({ onLogin, onBack, embedded = false, banner }: LoginProps) {
   const { t } = useTranslation()
   const emailId = useId()
   const passwordId = useId()
@@ -48,6 +49,11 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
         <h1 id="login-heading">{t('auth.login.heading')}</h1>
         <p>{t('auth.login.subtitle')}</p>
       </div>
+      {banner && (
+        <p className="form-error" role="status">
+          {banner}
+        </p>
+      )}
       <form onSubmit={submit} className="login-form">
         <label htmlFor={emailId}>{t('auth.login.emailLabel')}</label>
         <input

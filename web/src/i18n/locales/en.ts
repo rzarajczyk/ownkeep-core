@@ -23,6 +23,10 @@ export default {
       loading: 'Loading…',
       online: 'Connected',
       offline: 'Offline',
+      syncing: 'Syncing…',
+      pending: '{{count}} pending',
+      synced: 'Synced',
+      syncError: 'Sync error',
     },
     bytes: {
       b: '{{value}} B',
@@ -141,6 +145,11 @@ export default {
     loadError: {
       title: 'Couldn’t load your notes',
       retry: 'Try again',
+    },
+    offline: {
+      requiresConnection: 'This action requires a connection.',
+      attachmentsRequireConnection: 'Attachments require a connection.',
+      coldStart: 'Connect once to download your notes before working offline.',
     },
     loading: 'Gathering your notes…',
     empty: {

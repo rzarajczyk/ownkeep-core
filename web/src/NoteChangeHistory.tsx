@@ -281,7 +281,10 @@ export function NoteChangeHistory({
             <p className="note-history-empty">{t('editor.history.empty')}</p>
           ) : (
             items.map((item) => {
-              const isCurrent = item.sourceVersion === currentVersion
+              const isCurrent =
+                item.origin !== 'CONFLICT_LOCAL' &&
+                item.origin !== 'CONFLICT_REMOTE' &&
+                item.sourceVersion === currentVersion
               const hasCustomLabel = Boolean(labels[item.id]?.trim())
               const displayName =
                 labels[item.id]?.trim() ||

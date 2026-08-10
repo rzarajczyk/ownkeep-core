@@ -3,6 +3,7 @@ import { useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AttachmentView } from './AttachmentView'
 import { RenderedMarkdown } from './RenderedMarkdown'
+import { useOnline } from './offline/useOnline'
 import type { Note } from './types'
 import { linkify } from './utils'
 
@@ -15,6 +16,7 @@ interface NoteCardProps {
 
 export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
   const { t } = useTranslation()
+  const online = useOnline()
   const [menuOpen, setMenuOpen] = useState(false)
   const [working, setWorking] = useState(false)
 
@@ -58,6 +60,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
               noteId={note.id}
               attachment={attachment}
               compact
+              online={online}
               key={attachment.id}
             />
           ))}

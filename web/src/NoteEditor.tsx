@@ -104,7 +104,15 @@ import { buildEncryptedRevision } from './revisionSnapshots'
 import { RichBlockEditor } from './richtext/RichBlockEditor'
 import { RichInlineEditor } from './richtext/RichInlineEditor'
 import { Tooltip } from './Tooltip'
-import type { Attachment, ChecklistItem, Note, NoteRevisionDetail, SaveState } from './types'
+import type {
+  Attachment,
+  ChecklistItem,
+  EncryptedNoteWrite,
+  Note,
+  NoteRevisionDetail,
+  SaveState,
+} from './types'
+import { newMutationId, nowIso } from './offline/lww'
 import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
 import { useVault } from './vault/VaultContext'
 
@@ -115,6 +123,8 @@ interface NoteEditorProps {
   knownLabels?: string[]
   cancelIfEmpty?: boolean
   startInEditMode?: boolean
+  online?: boolean
+  persistLocal?: (noteId: string, write: EncryptedNoteWrite, draft: Note) => Promise<Note>
   ensureLabelIds: (names: string[]) => Promise<string[]>
   onClose: () => void
   onOptimistic: (note: Note) => void
@@ -385,6 +395,8 @@ export function NoteEditor({
   knownLabels = [],
   cancelIfEmpty = false,
   startInEditMode: _startInEditMode = false,
+  online = typeof navigator === 'undefined' ? true : navigator.onLine,
+  persistLocal,
   ensureLabelIds,
   onClose,
   onOptimistic,
@@ -479,6 +491,7 @@ export function NoteEditor({
   }, [note.id, vaultKey])
 
   const ensureBaseline = useCallback(async () => {
+    if (!online) return
     if (skipBaselineRef.current || baselineDoneRef.current) return
     if (baselinePromiseRef.current) {
       await baselinePromiseRef.current
@@ -502,7 +515,7 @@ export function NoteEditor({
     } finally {
       baselinePromiseRef.current = null
     }
-  }, [t, vaultKey])
+  }, [online, t, vaultKey])
 
   useEffect(() => {
     if (
@@ -678,12 +691,18 @@ export function NoteEditor({
     setSaveState('saving')
     setSaveError('')
     try {
-      await ensureBaseline()
-      const labelIds = await ensureLabelIds(capturedDraft.labels)
+      const labelIds =
+        online || capturedDraft.labelIds.length > 0
+          ? online
+            ? await ensureLabelIds(capturedDraft.labels)
+            : capturedDraft.labelIds
+          : capturedDraft.labelIds
       const withLabels = { ...capturedDraft, labelIds }
       latestDraft.current = withLabels
       setDraft(withLabels)
       const labelMap = labelMapFromNames(withLabels.labels, labelIds)
+      const clientUpdatedAt = nowIso()
+      const clientMutationId = newMutationId()
       const wire = await toWire(
         withLabels.id,
         {
@@ -698,7 +717,46 @@ export function NoteEditor({
           version: withLabels.version,
         },
         vaultKey,
+        { clientUpdatedAt, clientMutationId },
       )
+      if (persistLocal) {
+        // Persist locally first so flaky networks cannot block durability.
+        const canonical = await persistLocal(withLabels.id, wire, {
+          ...withLabels,
+          clientUpdatedAt,
+          clientMutationId,
+        })
+        if (online) {
+          void ensureBaseline().catch(() => {
+            // Baseline revisions are best-effort and retried on later online flushes.
+          })
+        }
+        if (thisRequest === requestId.current) {
+          savedRevision.current = capturedRevision
+          onCanonical(canonical)
+          if (requestedRevision.current === capturedRevision) {
+            latestDraft.current = canonical
+            setDraft(canonical)
+            setSaveState('saved')
+          } else {
+            const merged = {
+              ...latestDraft.current,
+              version: canonical.version,
+              updatedAt: canonical.updatedAt,
+              clientUpdatedAt: canonical.clientUpdatedAt,
+              clientMutationId: canonical.clientMutationId,
+              attachments: canonical.attachments,
+              labelIds: canonical.labelIds,
+              labels: canonical.labels,
+            }
+            latestDraft.current = merged
+            setDraft(merged)
+            onOptimistic(merged)
+          }
+        }
+        return
+      }
+      await ensureBaseline()
       const response = await api.updateNote(withLabels.id, wire)
       const canonical = await fromWire(response, vaultKey, labelMap)
       if (thisRequest === requestId.current) {
@@ -763,16 +821,18 @@ export function NoteEditor({
         void flush()
       }
     }
-  }, [ensureBaseline, ensureLabelIds, onCanonical, onOptimistic, t, vaultKey])
+  }, [ensureBaseline, ensureLabelIds, onCanonical, onOptimistic, online, persistLocal, t, vaultKey])
 
   const flushRef = useRef(flush)
   flushRef.current = flush
 
   useEffect(() => {
     if (!revision) return
-    const timer = window.setTimeout(() => void flushRef.current(), 650)
+    // Local-first path persists quickly; network-only path keeps the longer coalesce.
+    const delay = persistLocal ? 50 : 650
+    const timer = window.setTimeout(() => void flushRef.current(), delay)
     return () => window.clearTimeout(timer)
-  }, [revision])
+  }, [persistLocal, revision])
 
   function change(mutator: (current: Note) => Note) {
     const next = clearRenderedPreview(mutator(latestDraft.current))
@@ -1028,6 +1088,10 @@ export function NoteEditor({
   }
 
   async function addLabel(raw: string, options: { keepMenuOpen?: boolean } = {}) {
+    if (!online) {
+      setLabelError(t('notes.offline.requiresConnection'))
+      return
+    }
     const label = resolveLabelName(raw)
     if (!label) {
       setLabelError(t('editor.labels.emptyName'))
@@ -1066,6 +1130,7 @@ export function NoteEditor({
   }
 
   function removeLabel(label: string) {
+    if (!online) return
     change((current) => {
       const index = current.labels.indexOf(label)
       return {
@@ -1262,6 +1327,10 @@ export function NoteEditor({
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    if (!online) {
+      setUploadError(t('notes.offline.attachmentsRequireConnection'))
+      return
+    }
     setUploadError('')
     setUploadProgress(0)
     try {
@@ -1380,6 +1449,11 @@ export function NoteEditor({
 
     // No server-side change this session → do not add a history entry.
     if (latestDraft.current.version === openingNoteRef.current.version) {
+      onClose()
+      return
+    }
+
+    if (!online) {
       onClose()
       return
     }
@@ -1816,11 +1890,18 @@ export function NoteEditor({
             {draft.labels.map((label) => (
               <span className="label-chip" key={label}>
                 <span className="label-chip-text">{label}</span>
-                <Tooltip label={t('editor.labels.remove', { label })}>
+                <Tooltip
+                  label={
+                    online
+                      ? t('editor.labels.remove', { label })
+                      : t('notes.offline.requiresConnection')
+                  }
+                >
                   <button
                     type="button"
                     className="label-chip-remove"
                     onClick={() => removeLabel(label)}
+                    disabled={!online}
                     aria-label={t('editor.labels.remove', { label })}
                   >
                     <X aria-hidden="true" />
@@ -1829,11 +1910,17 @@ export function NoteEditor({
               </span>
             ))}
             <div className="label-add-wrap" ref={labelMenuRef}>
-              <Tooltip label={t('editor.labels.add')}>
+              <Tooltip
+                label={
+                  online ? t('editor.labels.add') : t('notes.offline.requiresConnection')
+                }
+              >
                 <button
                   type="button"
                   className="label-chip label-chip-add"
+                  disabled={!online}
                   onClick={() => {
+                    if (!online) return
                     setLabelMenuOpen((open) => !open)
                     setLabelError('')
                     setNewLabelText('')
@@ -1918,7 +2005,8 @@ export function NoteEditor({
                 key={attachment.id}
                 noteId={draft.id}
                 attachment={attachment}
-                onDelete={deleteAttachment}
+                online={online}
+                onDelete={online ? deleteAttachment : undefined}
               />
             ))}
           </section>
@@ -2030,23 +2118,47 @@ export function NoteEditor({
                 {draft.type === 'TEXT' ? <ListChecks /> : <ListX />}
               </button>
             </Tooltip>
-            <Tooltip label={t('editor.attachments.upload')}>
-              <label className="icon-button file-picker">
+            <Tooltip
+              label={
+                online
+                  ? t('editor.attachments.upload')
+                  : t('notes.offline.attachmentsRequireConnection')
+              }
+            >
+              <label className={`icon-button file-picker${online ? '' : ' disabled'}`}>
                 <Paperclip aria-hidden="true" />
                 <span className="sr-only">{t('editor.attachments.upload')}</span>
-                <input type="file" onChange={(event) => void upload(event)} />
+                <input
+                  type="file"
+                  disabled={!online}
+                  onChange={(event) => void upload(event)}
+                />
               </label>
             </Tooltip>
             <HistoryToolButton
-              label={t('editor.history.open')}
-              onClick={() => setHistoryOpen(true)}
+              label={
+                online ? t('editor.history.open') : t('notes.offline.requiresConnection')
+              }
+              onClick={() => {
+                if (!online) return
+                setHistoryOpen(true)
+              }}
             />
           </div>
           <div className="editor-tools editor-tools-right">
-            <Tooltip label={draft.archived ? t('editor.toolbar.restore') : t('editor.toolbar.archive')}>
+            <Tooltip
+              label={
+                online
+                  ? draft.archived
+                    ? t('editor.toolbar.restore')
+                    : t('editor.toolbar.archive')
+                  : t('notes.offline.requiresConnection')
+              }
+            >
               <button
                 type="button"
                 className="icon-button"
+                disabled={!online}
                 onClick={() =>
                   change((current) => ({ ...current, archived: !current.archived }))
                 }
@@ -2055,12 +2167,16 @@ export function NoteEditor({
                 {draft.archived ? <ArchiveRestore /> : <Archive />}
               </button>
             </Tooltip>
-            <Tooltip label={t('editor.toolbar.delete')}>
+            <Tooltip
+              label={
+                online ? t('editor.toolbar.delete') : t('notes.offline.requiresConnection')
+              }
+            >
               <button
                 type="button"
                 className="icon-button danger"
                 onClick={() => void removeNote()}
-                disabled={deleting}
+                disabled={deleting || !online}
                 aria-label={t('editor.toolbar.delete')}
               >
                 {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}

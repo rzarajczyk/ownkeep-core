@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react'
 import type { Attachment } from './types'
+import { useOnline } from './offline/useOnline'
 import { sanitizedMarkup } from './utils'
 import { useAttachmentImageUrls } from './useAttachmentImageUrls'
 
@@ -25,7 +26,8 @@ export function RenderedMarkdown({
 }: RenderedMarkdownProps) {
   const ref = useRef<HTMLElement | null>(null)
   const markup = useMemo(() => sanitizedMarkup(html), [html])
-  useAttachmentImageUrls(ref, attachments, html, noteId)
+  const online = useOnline()
+  useAttachmentImageUrls(ref, attachments, html, noteId, online)
 
   if (inline) {
     return (

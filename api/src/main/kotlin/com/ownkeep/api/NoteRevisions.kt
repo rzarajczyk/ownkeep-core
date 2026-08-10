@@ -45,6 +45,7 @@ data class NoteRevisionSummaryResponse(
     val createdAt: Instant,
     val sourceVersion: Long,
     val labelCiphertext: String?,
+    val origin: String = NoteRevisionOrigin.NORMAL.name,
 )
 
 data class CreateNoteRevisionResponse(
@@ -64,6 +65,7 @@ data class NoteRevisionDetailResponse(
     val createdAt: Instant,
     val sourceVersion: Long,
     val labelCiphertext: String?,
+    val origin: String = NoteRevisionOrigin.NORMAL.name,
     val wrappedNoteKey: String,
     val snapshotCiphertext: String,
 )
@@ -135,7 +137,11 @@ class NoteRevisionService(
         if (request.sourceVersion != note.version) {
             throw ApiException(HttpStatus.CONFLICT, "version_conflict", "The note has changed since it was loaded")
         }
-        val existing = noteRevisionRepository.findByNoteIdAndSourceNoteVersion(noteId, request.sourceVersion)
+        val existing = noteRevisionRepository.findByNoteIdAndSourceNoteVersionAndOrigin(
+            noteId,
+            request.sourceVersion,
+            NoteRevisionOrigin.NORMAL,
+        )
         if (existing != null) {
             return CreateNoteRevisionResponse(created = false, revision = existing.toSummary())
         }
@@ -155,13 +161,18 @@ class NoteRevisionService(
                     id = request.id,
                     noteId = noteId,
                     sourceNoteVersion = request.sourceVersion,
+                    origin = NoteRevisionOrigin.NORMAL,
                     wrappedNoteKey = wrappedKey,
                     snapshotCiphertext = snapshot,
                     createdAt = clock.instant(),
                 ),
             )
         } catch (_: DataIntegrityViolationException) {
-            val raced = noteRevisionRepository.findByNoteIdAndSourceNoteVersion(noteId, request.sourceVersion)
+            val raced = noteRevisionRepository.findByNoteIdAndSourceNoteVersionAndOrigin(
+                noteId,
+                request.sourceVersion,
+                NoteRevisionOrigin.NORMAL,
+            )
                 ?: throw ApiException(HttpStatus.CONFLICT, "revision_exists", "A revision with this id already exists")
             return CreateNoteRevisionResponse(created = false, revision = raced.toSummary())
         }
@@ -209,6 +220,7 @@ class NoteRevisionService(
             createdAt = revision.createdAt,
             sourceVersion = revision.sourceNoteVersion,
             labelCiphertext = revision.labelCiphertext?.let(CryptoSupport::encode),
+            origin = revision.origin.name,
             wrappedNoteKey = CryptoSupport.encode(revision.wrappedNoteKey),
             snapshotCiphertext = CryptoSupport.encode(revision.snapshotCiphertext),
         )
@@ -243,7 +255,11 @@ class NoteRevisionService(
             )
         }
 
-        val existingUndo = noteRevisionRepository.findByNoteIdAndSourceNoteVersion(noteId, note.version)
+        val existingUndo = noteRevisionRepository.findByNoteIdAndSourceNoteVersionAndOrigin(
+            noteId,
+            note.version,
+            NoteRevisionOrigin.NORMAL,
+        )
         if (existingUndo == null) {
             if (noteRevisionRepository.existsById(request.undoRevision.id)) {
                 throw ApiException(HttpStatus.CONFLICT, "revision_exists", "A revision with this id already exists")
@@ -253,6 +269,7 @@ class NoteRevisionService(
                     id = request.undoRevision.id,
                     noteId = noteId,
                     sourceNoteVersion = request.undoRevision.sourceVersion,
+                    origin = NoteRevisionOrigin.NORMAL,
                     wrappedNoteKey = CryptoSupport.decodeRequired(
                         request.undoRevision.wrappedNoteKey,
                         "undoRevision.wrappedNoteKey",
@@ -316,6 +333,8 @@ class NoteRevisionService(
         note.ciphertext = CryptoSupport.decodeRequired(request.ciphertext, "ciphertext", minBytes = 28, maxBytes = 2_000_000)
         note.wrappedNoteKey = CryptoSupport.decodeRequired(request.wrappedNoteKey, "wrappedNoteKey", minBytes = 28, maxBytes = 512)
         note.updatedAt = now
+        note.clientUpdatedAt = now
+        note.clientMutationId = null
         noteRepository.save(note)
         replaceLabels(note, labelIds)
 
@@ -403,16 +422,11 @@ class NoteRevisionService(
             attachments = attachments,
             createdAt = note.createdAt,
             updatedAt = note.updatedAt,
+            clientUpdatedAt = note.clientUpdatedAt,
+            clientMutationId = note.clientMutationId,
             version = note.version,
         )
     }
-
-    private fun NoteRevisionEntity.toSummary() = NoteRevisionSummaryResponse(
-        id = id,
-        createdAt = createdAt,
-        sourceVersion = sourceNoteVersion,
-        labelCiphertext = labelCiphertext?.let(CryptoSupport::encode),
-    )
 }
 
 @Component

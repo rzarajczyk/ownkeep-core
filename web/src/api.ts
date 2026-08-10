@@ -1,5 +1,7 @@
 import type {
   AuthSession,
+  ConflictResolveRequest,
+  ConflictResolveResponse,
   EncryptedAttachmentWire,
   EncryptedLabelWire,
   EncryptedNoteWire,
@@ -263,6 +265,16 @@ class ApiClient {
       body: JSON.stringify(payload),
       signal,
     })
+  }
+
+  conflictResolve(id: string, payload: ConflictResolveRequest) {
+    return this.request<ConflictResolveResponse>(
+      `/notes/${encodeURIComponent(id)}/conflict-resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    )
   }
 
   deleteNote(id: string) {

@@ -1,4 +1,5 @@
 import type { Note } from './types'
+import { noteIsNewer } from './offline/lww'
 
 export interface NotesState {
   byId: Record<string, Note>
@@ -16,7 +17,8 @@ export const initialNotesState: NotesState = { byId: {}, order: [] }
 function newestFirst(a: Note, b: Note) {
   return (
     Number(b.pinned) - Number(a.pinned) ||
-    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() ||
+    new Date(b.clientUpdatedAt ?? b.updatedAt).getTime() -
+      new Date(a.clientUpdatedAt ?? a.updatedAt).getTime() ||
     b.id.localeCompare(a.id)
   )
 }
@@ -38,7 +40,7 @@ export function notesReducer(state: NotesState, action: NotesAction): NotesState
       action.deletedIds.forEach((id) => delete byId[id])
       action.notes.forEach((note) => {
         const current = byId[note.id]
-        if (!current || note.version > current.version) byId[note.id] = note
+        if (!current || noteIsNewer(note, current)) byId[note.id] = note
       })
       return normalize(Object.values(byId))
     }

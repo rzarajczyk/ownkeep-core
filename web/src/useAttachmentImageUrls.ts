@@ -16,13 +16,11 @@ export function useAttachmentImageUrls(
   attachments: Attachment[],
   html: string,
   noteId?: string,
+  online = typeof navigator === 'undefined' ? true : navigator.onLine,
 ) {
   useEffect(() => {
     const root = containerRef.current
     if (!root || !html || !noteId) return
-
-    const noteKey = getCachedNoteKey(noteId)
-    if (!noteKey) return
 
     const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]))
     const controller = new AbortController()
@@ -36,6 +34,16 @@ export function useAttachmentImageUrls(
       if (!id) return
       const attachment = byId.get(id)
       if (!attachment) return
+
+      if (!online) {
+        img.removeAttribute('src')
+        img.setAttribute('data-offline-attachment', id)
+        img.alt = attachment.originalFilename
+        return
+      }
+
+      const noteKey = getCachedNoteKey(noteId)
+      if (!noteKey) return
 
       api
         .attachmentCipherBlob(attachment.id, attachment.url, controller.signal)
@@ -65,5 +73,5 @@ export function useAttachmentImageUrls(
       controller.abort()
       objectUrls.forEach((url) => URL.revokeObjectURL(url))
     }
-  }, [attachments, containerRef, html, noteId])
+  }, [attachments, containerRef, html, noteId, online])
 }

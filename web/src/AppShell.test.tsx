@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { AppShell } from './AppShell'
@@ -118,7 +119,8 @@ const adminUser: User = { id: 1, email: 'admin@example.com', role: 'ADMIN', vaul
 afterEach(cleanup)
 
 describe('pinned notes layout', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    indexedDB = new IDBFactory()
     vi.mocked(api.notes).mockReset()
     vi.mocked(api.listLabels).mockReset()
     vi.mocked(api.listLabels).mockResolvedValue([])

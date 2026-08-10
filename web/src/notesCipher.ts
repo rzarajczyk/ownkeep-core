@@ -91,6 +91,8 @@ export async function fromWire(
     labelIds: payload.labelIds,
     createdAt: wire.createdAt,
     updatedAt: wire.updatedAt,
+    clientUpdatedAt: wire.clientUpdatedAt ?? wire.updatedAt,
+    clientMutationId: wire.clientMutationId ?? null,
     version: wire.version,
     items,
     attachments,
@@ -112,7 +114,11 @@ export async function toWire(
     pinned: boolean
   },
   vaultKey: Uint8Array,
-  options?: { existingNoteKey?: Uint8Array },
+  options?: {
+    existingNoteKey?: Uint8Array
+    clientUpdatedAt?: string
+    clientMutationId?: string
+  },
 ): Promise<EncryptedNoteWrite> {
   if (draft.metadataOnly) {
     return {
@@ -122,6 +128,8 @@ export async function toWire(
       pinned: draft.pinned,
       version: draft.version,
       labelIds: draft.labelIds,
+      clientUpdatedAt: options?.clientUpdatedAt,
+      clientMutationId: options?.clientMutationId,
     }
   }
   const noteKey = options?.existingNoteKey ?? noteKeyCache.get(noteId) ?? generateNoteKey()
@@ -143,5 +151,7 @@ export async function toWire(
     wrappedNoteKey: await wrapNoteKey(vaultKey, noteId, noteKey),
     ciphertext: await encryptNotePayload(noteId, noteKey, payload),
     labelIds: draft.labelIds,
+    clientUpdatedAt: options?.clientUpdatedAt,
+    clientMutationId: options?.clientMutationId,
   }
 }

@@ -23,6 +23,10 @@ export default {
       loading: 'Wczytywanie…',
       online: 'Połączono',
       offline: 'Brak połączenia',
+      syncing: 'Synchronizacja…',
+      pending: '{{count}} oczekuje',
+      synced: 'Zsynchronizowano',
+      syncError: 'Błąd synchronizacji',
     },
     bytes: {
       b: '{{value}} B',
@@ -143,6 +147,11 @@ export default {
     loadError: {
       title: 'Nie udało się wczytać notatek',
       retry: 'Spróbuj ponownie',
+    },
+    offline: {
+      requiresConnection: 'Ta czynność wymaga połączenia z siecią.',
+      attachmentsRequireConnection: 'Załączniki wymagają połączenia z siecią.',
+      coldStart: 'Połącz się raz, aby pobrać notatki przed pracą offline.',
     },
     loading: 'Wczytywanie Twoich notatek…',
     empty: {

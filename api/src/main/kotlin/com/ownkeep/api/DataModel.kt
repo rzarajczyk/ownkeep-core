@@ -15,6 +15,7 @@ import java.util.UUID
 enum class NoteType { TEXT, LIST }
 enum class UserRole { ADMIN, USER }
 enum class AuthTokenPurpose { SESSION, RECOVERY }
+enum class NoteRevisionOrigin { NORMAL, CONFLICT_LOCAL, CONFLICT_REMOTE }
 
 @Entity
 @Table(name = "users")
@@ -123,6 +124,10 @@ class NoteEntity(
     var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
+    @Column(name = "client_updated_at", nullable = false)
+    var clientUpdatedAt: Instant = Instant.now(),
+    @Column(name = "client_mutation_id", length = 36)
+    var clientMutationId: String? = null,
     @Version
     @Column(nullable = false)
     var version: Long = 0,
@@ -182,6 +187,9 @@ class NoteRevisionEntity(
     var noteId: UUID = UUID.randomUUID(),
     @Column(name = "source_note_version", nullable = false)
     var sourceNoteVersion: Long = 0,
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    var origin: NoteRevisionOrigin = NoteRevisionOrigin.NORMAL,
     @Column(name = "wrapped_note_key", nullable = false, columnDefinition = "bytea")
     var wrappedNoteKey: ByteArray = ByteArray(0),
     @Column(name = "snapshot_ciphertext", nullable = false, columnDefinition = "bytea")

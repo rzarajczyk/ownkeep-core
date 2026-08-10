@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api } from './api'
+import { api, ApiError } from './api'
 import { encryptLabelName } from './crypto/labelCodec'
 import { NoteCard } from './NoteCard'
 import { NoteEditor } from './NoteEditor'
@@ -35,8 +35,13 @@ import {
   notesReducer,
   selectNotes,
 } from './notesReducer'
+import { newMutationId, nowIso } from './offline/lww'
+import { LocalRepository } from './offline/repository'
+import { SyncEngine, wireFromWrite } from './offline/syncEngine'
+import type { SyncStatus } from './offline/types'
+import { useOnline } from './offline/useOnline'
 import { Tooltip } from './Tooltip'
-import type { EncryptedNoteWire, Note, User } from './types'
+import type { EncryptedNoteWrite, Note, User } from './types'
 import { errorMessage } from './utils'
 import { useVault } from './vault/VaultContext'
 
@@ -44,11 +49,6 @@ interface AppShellProps {
   user: User
   onLogout: () => Promise<void>
   onSessionEnded: () => void
-}
-
-interface SyncCursor {
-  updatedAfter?: string
-  afterId?: string
 }
 
 function noteMatchesQuery(note: Note, needle: string): boolean {
@@ -62,15 +62,41 @@ function noteMatchesQuery(note: Note, needle: string): boolean {
   return false
 }
 
+function syncStatusLabel(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  status: SyncStatus,
+): string {
+  switch (status.kind) {
+    case 'offline':
+      return t('common.status.offline')
+    case 'syncing':
+      return t('common.status.syncing')
+    case 'pending':
+      return t('common.status.pending', { count: status.pendingCount })
+    case 'error':
+      return t('common.status.syncError')
+    default:
+      return t('common.status.synced')
+  }
+}
+
 export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const { t } = useTranslation()
   const { vaultKey } = useVault()
+  const online = useOnline()
+  const repoRef = useRef(new LocalRepository(user.id))
+  const engineRef = useRef<SyncEngine | null>(null)
   const [state, dispatch] = useReducer(notesReducer, initialNotesState)
   const [archived, setArchived] = useState(false)
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [syncing, setSyncing] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+    kind: online ? 'synced' : 'offline',
+    pendingCount: 0,
+    lastError: null,
+    lastSyncedAt: null,
+  })
   const [creating, setCreating] = useState(false)
   const [pendingNewNoteId, setPendingNewNoteId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -86,9 +112,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const [toast, setToast] = useState('')
   const [knownLabels, setKnownLabels] = useState<string[]>([])
   const accountRef = useRef<HTMLDivElement>(null)
-  const loaded = useRef(new Set<boolean>())
-  const cursors = useRef<Record<string, SyncCursor>>({})
-  const loadRequest = useRef(0)
+  const hydrated = useRef(false)
   const labelIdToName = useRef(new Map<string, string>())
   const labelNameToId = useRef(new Map<string, string>())
 
@@ -99,24 +123,46 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }, [])
 
   const refreshLabelMaps = useCallback(async (key: Uint8Array) => {
-    const wires = await api.listLabels()
-    const idToName = await decryptLabels(key, wires)
-    const nameToId = new Map<string, string>()
-    for (const [id, name] of idToName) {
-      nameToId.set(name.toLowerCase(), id)
+    try {
+      const wires = await api.listLabels()
+      await repoRef.current.cacheLabels(wires)
+      const idToName = await decryptLabels(key, wires)
+      const nameToId = new Map<string, string>()
+      for (const [id, name] of idToName) {
+        nameToId.set(name.toLowerCase(), id)
+      }
+      labelIdToName.current = idToName
+      labelNameToId.current = nameToId
+      setKnownLabels(
+        [...idToName.values()].sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: 'base' }),
+        ),
+      )
+      return idToName
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === 'connection_failed')) throw error
+      const cached = await repoRef.current.getCachedLabels()
+      const idToName = await decryptLabels(key, cached)
+      const nameToId = new Map<string, string>()
+      for (const [id, name] of idToName) {
+        nameToId.set(name.toLowerCase(), id)
+      }
+      labelIdToName.current = idToName
+      labelNameToId.current = nameToId
+      setKnownLabels(
+        [...idToName.values()].sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: 'base' }),
+        ),
+      )
+      return idToName
     }
-    labelIdToName.current = idToName
-    labelNameToId.current = nameToId
-    setKnownLabels(
-      [...idToName.values()].sort((a, b) =>
-        a.localeCompare(b, undefined, { sensitivity: 'base' }),
-      ),
-    )
-    return idToName
   }, [])
 
   const resolveLabelId = useCallback(
     async (name: string, key: Uint8Array): Promise<string> => {
+      if (!navigator.onLine) {
+        throw new Error(t('notes.offline.requiresConnection'))
+      }
       const lookup = name.toLowerCase()
       const existing = labelNameToId.current.get(lookup)
       if (existing) return existing
@@ -133,64 +179,57 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       })
       return created.id
     },
-    [],
+    [t],
   )
 
-  const loadNotes = useCallback(
-    async (mode: boolean, incremental = false) => {
-      if (!vaultKey) return
-      const request = ++loadRequest.current
-      if (incremental) setSyncing(true)
-      else setLoading(true)
-      setLoadError('')
-      try {
-        const allItems: EncryptedNoteWire[] = []
-        const deletedIds: string[] = []
-        const cursorKey = incremental ? 'all' : String(mode)
-        let cursor = incremental ? cursors.current[cursorKey] ?? {} : {}
-        let hasMore = true
-        while (hasMore) {
-          const page = await api.notes({
-            archived: incremental ? undefined : mode,
-            limit: 100,
-            updatedAfter: cursor.updatedAfter,
-            afterId: cursor.afterId,
-          })
-          allItems.push(...page.items)
-          deletedIds.push(...page.deletedIds)
-          hasMore = page.hasMore
-          const nextCursor = {
-            updatedAfter: page.nextUpdatedAfter ?? cursor.updatedAfter,
-            afterId: page.nextAfterId ?? cursor.afterId,
-          }
-          if (
-            hasMore &&
-            nextCursor.updatedAfter === cursor.updatedAfter &&
-            nextCursor.afterId === cursor.afterId
-          ) {
-            break
-          }
-          cursor = nextCursor
-        }
-        if (request !== loadRequest.current && !incremental) return
-        const labelNames = await refreshLabelMaps(vaultKey)
-        const notes = await Promise.all(
-          allItems.map((wire) => fromWire(wire, vaultKey, labelNames)),
-        )
-        if (request !== loadRequest.current && !incremental) return
-        dispatch({ type: 'reconcile', notes, deletedIds })
-        cursors.current[cursorKey] = cursor
-        if (!incremental) loaded.current.add(mode)
-      } catch (reason) {
-        setLoadError(errorMessage(reason))
-      } finally {
-        if (request === loadRequest.current || incremental) {
-          setLoading(false)
-          setSyncing(false)
-        }
+  const hydrateFromLocal = useCallback(async () => {
+    if (!vaultKey) return
+    setLoading(true)
+    setLoadError('')
+    try {
+      const labelNames = await refreshLabelMaps(vaultKey)
+      const records = await repoRef.current.listNotes()
+      const notes = await Promise.all(
+        records.map((record) => fromWire(record.wire, vaultKey, labelNames)),
+      )
+      dispatch({ type: 'replace', notes })
+      hydrated.current = true
+      if (records.length === 0 && !navigator.onLine) {
+        setLoadError(t('notes.offline.coldStart'))
       }
+    } catch (reason) {
+      setLoadError(errorMessage(reason))
+    } finally {
+      setLoading(false)
+    }
+  }, [refreshLabelMaps, t, vaultKey])
+
+  const persistLocalWrite = useCallback(
+    async (noteId: string, write: EncryptedNoteWrite, draft: Note) => {
+      if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+      const previous = await repoRef.current.getNote(noteId)
+      const wire = wireFromWrite(write, previous?.wire, noteId)
+      await repoRef.current.upsertLocalNote(wire, write, {
+        neverSynced: previous?.neverSynced ?? !previous,
+      })
+      const labelMap = new Map(labelIdToName.current)
+      for (let i = 0; i < draft.labelIds.length; i += 1) {
+        labelMap.set(draft.labelIds[i]!, draft.labels[i] ?? draft.labelIds[i]!)
+      }
+      const localNote: Note = {
+        ...draft,
+        updatedAt: wire.updatedAt,
+        clientUpdatedAt: wire.clientUpdatedAt,
+        clientMutationId: wire.clientMutationId,
+        wrappedNoteKey: wire.wrappedNoteKey,
+        ciphertext: wire.ciphertext,
+      }
+      dispatch({ type: 'upsert', note: localNote })
+      updateSearchNote(localNote)
+      engineRef.current?.kick()
+      return localNote
     },
-    [refreshLabelMaps, vaultKey],
+    [t, updateSearchNote, vaultKey],
   )
 
   useEffect(() => {
@@ -198,26 +237,39 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       setLoading(true)
       return
     }
-    if (!loaded.current.has(archived)) void loadNotes(archived)
-    else setLoading(false)
-  }, [archived, loadNotes, vaultKey])
+    void hydrateFromLocal()
+  }, [hydrateFromLocal, vaultKey])
 
   useEffect(() => {
     if (!vaultKey) return
-    const sync = () => {
-      if (document.visibilityState === 'visible' && navigator.onLine) {
-        void loadNotes(archived, true)
-      }
+    const refreshFromRepo = () => {
+      void (async () => {
+        if (!vaultKey) return
+        try {
+          const labelNames = await refreshLabelMaps(vaultKey)
+          const records = await repoRef.current.listNotes()
+          const notes = await Promise.all(
+            records.map((record) => fromWire(record.wire, vaultKey, labelNames)),
+          )
+          dispatch({ type: 'replace', notes })
+        } catch {
+          // Keep current UI if refresh fails.
+        }
+      })()
     }
-    const interval = window.setInterval(sync, 30_000)
-    window.addEventListener('online', sync)
-    document.addEventListener('visibilitychange', sync)
+    const engine = new SyncEngine(repoRef.current, refreshFromRepo)
+    engine.setVaultKey(vaultKey)
+    engineRef.current = engine
+    const unsubscribe = engine.subscribe(setSyncStatus)
+    engine.start()
+    window.addEventListener('online', refreshFromRepo)
     return () => {
-      window.clearInterval(interval)
-      window.removeEventListener('online', sync)
-      document.removeEventListener('visibilitychange', sync)
+      engine.stop()
+      unsubscribe()
+      window.removeEventListener('online', refreshFromRepo)
+      engineRef.current = null
     }
-  }, [archived, loadNotes, vaultKey])
+  }, [refreshLabelMaps, vaultKey])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -270,9 +322,14 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       const labelIds: string[] = []
       const labels: string[] = []
       if (selectedLabel) {
+        if (!online) {
+          throw new Error(t('notes.offline.requiresConnection'))
+        }
         labelIds.push(await resolveLabelId(selectedLabel, vaultKey))
         labels.push(selectedLabel)
       }
+      const clientUpdatedAt = nowIso()
+      const clientMutationId = newMutationId()
       const payload = await toWire(
         id,
         {
@@ -287,13 +344,16 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           items: [],
         },
         vaultKey,
+        { clientUpdatedAt, clientMutationId },
       )
-      const wire = await api.createNote(payload)
+      const wire = wireFromWrite(payload, undefined, id)
+      await repoRef.current.upsertLocalNote(wire, payload, { neverSynced: true })
       const note = await fromWire(wire, vaultKey, labelIdToName.current)
       dispatch({ type: 'upsert', note })
       setArchived(false)
       setPendingNewNoteId(note.id)
       setSelectedId(note.id)
+      engineRef.current?.kick()
     } catch (reason) {
       setToast(errorMessage(reason))
     } finally {
@@ -307,6 +367,10 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }
 
   async function toggleArchive(note: Note) {
+    if (!online) {
+      setToast(t('notes.offline.requiresConnection'))
+      return
+    }
     const optimistic = { ...note, archived: !note.archived }
     replaceNote(optimistic)
     try {
@@ -314,12 +378,16 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         archived: !note.archived,
         version: note.version,
         type: note.type,
+        clientUpdatedAt: nowIso(),
+        clientMutationId: newMutationId(),
       })
       replaceNote({
         ...optimistic,
         archived: wire.archived,
         version: wire.version,
         updatedAt: wire.updatedAt,
+        clientUpdatedAt: wire.clientUpdatedAt,
+        clientMutationId: wire.clientMutationId,
       })
       setToast(wire.archived ? t('notes.toasts.archived') : t('notes.toasts.restored'))
     } catch (reason) {
@@ -329,6 +397,10 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }
 
   async function discardNote(note: Note) {
+    if (!online) {
+      setToast(t('notes.offline.requiresConnection'))
+      return
+    }
     dispatch({ type: 'remove', id: note.id })
     setSearchResults((results) => results?.filter((item) => item.id !== note.id) ?? null)
     try {
@@ -340,6 +412,10 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }
 
   async function deleteNote(note: Note) {
+    if (!online) {
+      setToast(t('notes.offline.requiresConnection'))
+      return false
+    }
     if (!window.confirm(t('notes.deleteConfirm'))) return false
     dispatch({ type: 'remove', id: note.id })
     setSearchResults((results) => results?.filter((item) => item.id !== note.id) ?? null)
@@ -458,11 +534,11 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           <button
             type="button"
             className="icon-button sync-button"
-            onClick={() => void loadNotes(archived, true)}
-            disabled={syncing || waitingForVault}
+            onClick={() => engineRef.current?.kick()}
+            disabled={syncStatus.kind === 'syncing' || waitingForVault || !online}
             aria-label={t('shell.sync')}
           >
-            <RefreshCw className={syncing ? 'spin' : ''} />
+            <RefreshCw className={syncStatus.kind === 'syncing' ? 'spin' : ''} />
           </button>
         </Tooltip>
         <div className="user-menu" ref={accountRef}>
@@ -506,7 +582,9 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               <button
                 type="button"
                 role="menuitem"
+                disabled={!online}
                 onClick={() => {
+                  if (!online) return
                   setAccountOpen(false)
                   setImportOpen(true)
                 }}
@@ -608,7 +686,9 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           <button
             type="button"
             className="mobile-import"
+            disabled={!online}
             onClick={() => {
+              if (!online) return
               setNavOpen(false)
               setImportOpen(true)
             }}
@@ -616,9 +696,15 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             <FileUp aria-hidden="true" /> {t('shell.account.importFromKeep')}
           </button>
         </div>
-        <p className="sidebar-status">
-          <span className={navigator.onLine ? 'online-dot' : 'offline-dot'} />
-          {navigator.onLine ? t('common.status.online') : t('common.status.offline')}
+        <p className="sidebar-status" title={syncStatus.lastError ?? undefined}>
+          <span
+            className={
+              syncStatus.kind === 'offline' || syncStatus.kind === 'error'
+                ? 'offline-dot'
+                : 'online-dot'
+            }
+          />
+          {syncStatusLabel(t, syncStatus)}
         </p>
       </aside>
 
@@ -654,7 +740,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           <div className="state-panel error-state" role="alert">
             <h2>{t('notes.loadError.title')}</h2>
             <p>{loadError}</p>
-            <button type="button" className="secondary-button" onClick={() => void loadNotes(archived)}>
+            <button type="button" className="secondary-button" onClick={() => void hydrateFromLocal()}>
               <RefreshCw /> {t('notes.loadError.retry')}
             </button>
           </div>
@@ -738,8 +824,11 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           knownLabels={knownLabels}
           cancelIfEmpty={pendingNewNoteId === selectedNote.id}
           startInEditMode={pendingNewNoteId === selectedNote.id}
+          online={online}
+          persistLocal={persistLocalWrite}
           ensureLabelIds={async (names) => {
             if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+            if (!online) throw new Error(t('notes.offline.requiresConnection'))
             const ids: string[] = []
             for (const name of names) {
               ids.push(await resolveLabelId(name, vaultKey))
@@ -756,13 +845,12 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           onDiscard={discardNote}
         />
       )}
-      {importOpen && (
+      {importOpen && online && (
         <KeepImportDialog
           onClose={() => setImportOpen(false)}
           onCompleted={async () => {
-            loaded.current.clear()
-            cursors.current = {}
-            await loadNotes(archived)
+            engineRef.current?.kick()
+            await hydrateFromLocal()
             setToast(t('import.toastCompleted'))
           }}
         />

@@ -2,11 +2,12 @@ import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
-import { api } from './api'
+import { api, ApiError } from './api'
 import { AppShell } from './AppShell'
 import { EmailVerifyPage } from './EmailVerifyPage'
 import { bootstrapI18n } from './i18n'
 import { Login } from './Login'
+import { LocalRepository } from './offline/repository'
 import type { AuthSession, User } from './types'
 import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
 import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './vault/VaultGate'
@@ -15,14 +16,17 @@ bootstrapI18n()
 
 const TOKEN_KEY = 'ownkeep.auth'
 
-function readStoredSession(): AuthSession | null {
+function readStoredSession(options?: { allowExpired?: boolean }): AuthSession | null {
   try {
     const value = localStorage.getItem(TOKEN_KEY)
     if (!value) return null
     const session = JSON.parse(value) as AuthSession
     if (!session.token || !session.user?.id) return null
-    if (session.expiresAt && new Date(session.expiresAt).getTime() <= Date.now()) {
-      localStorage.removeItem(TOKEN_KEY)
+    const expired =
+      Boolean(session.expiresAt) && new Date(session.expiresAt).getTime() <= Date.now()
+    if (expired && !options?.allowExpired) {
+      // Keep the raw session in localStorage so offline data is not orphaned;
+      // caller can prompt re-login while preserving IDB outbox.
       return null
     }
     return { ...session, recoveryRequired: session.recoveryRequired === true }
@@ -55,13 +59,24 @@ function AuthenticatedApp({
 }) {
   const { isUnlocked, lock } = useVault()
 
+  async function refreshUserIfOnline() {
+    if (!navigator.onLine) return
+    try {
+      const user = await api.me()
+      onUserUpdated(user)
+      await new LocalRepository(user.id).cacheVault(user.vault)
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'connection_failed') return
+      throw error
+    }
+  }
+
   if (vaultNeedsSetup(session.user)) {
     return (
       <VaultSetup
         passwordHint={passwordHint}
         onReady={async () => {
-          const user = await api.me()
-          onUserUpdated(user)
+          await refreshUserIfOnline()
         }}
       />
     )
@@ -74,8 +89,7 @@ function AuthenticatedApp({
         passwordHint={passwordHint}
         onLogout={onLogout}
         onReady={async () => {
-          const user = await api.me()
-          onUserUpdated(user)
+          await refreshUserIfOnline()
         }}
       />
     )
@@ -100,13 +114,16 @@ function App() {
   const { t } = useTranslation()
   const [session, setSession] = useState<AuthSession | null>(() => readStoredSession())
   const [restoring, setRestoring] = useState(
-    () => Boolean(session && !session.recoveryRequired),
+    () => Boolean(readStoredSession() || readStoredSession({ allowExpired: true })),
   )
   const [passwordHint, setPasswordHint] = useState<string | null>(null)
   const [verifyRoute, setVerifyRoute] = useState(() => isVerifyEmailPath())
+  const [sessionExpired, setSessionExpired] = useState(false)
 
-  const resetSession = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY)
+  const resetSession = useCallback((options?: { wipeStorage?: boolean }) => {
+    if (options?.wipeStorage !== false) {
+      localStorage.removeItem(TOKEN_KEY)
+    }
     api.setToken(null)
     setSession(null)
     setPasswordHint(null)
@@ -114,12 +131,18 @@ function App() {
   }, [])
 
   useEffect(() => {
-    api.onUnauthorized(resetSession)
+    api.onUnauthorized(() => resetSession({ wipeStorage: false }))
     return () => api.onUnauthorized(null)
   }, [resetSession])
 
   useEffect(() => {
     const stored = readStoredSession()
+    const expiredStored = !stored ? readStoredSession({ allowExpired: true }) : null
+    if (!stored && expiredStored) {
+      setSessionExpired(true)
+      setRestoring(false)
+      return
+    }
     if (!stored) {
       setRestoring(false)
       return
@@ -133,13 +156,24 @@ function App() {
     const controller = new AbortController()
     api
       .me(controller.signal)
-      .then((user: User) => {
+      .then(async (user: User) => {
         const next = { ...stored, user }
         localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
         setSession(next)
+        await new LocalRepository(user.id).cacheVault(user.vault)
       })
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) resetSession()
+      .catch(async (error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        if (error instanceof ApiError && error.code === 'connection_failed') {
+          const cachedVault = await new LocalRepository(stored.user.id).getCachedVault()
+          const user = cachedVault
+            ? { ...stored.user, vault: cachedVault }
+            : stored.user
+          setSession({ ...stored, user })
+          return
+        }
+        resetSession({ wipeStorage: false })
+        setSessionExpired(true)
       })
       .finally(() => setRestoring(false))
     return () => controller.abort()
@@ -150,7 +184,9 @@ function App() {
     api.setToken(next.token)
     localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
     setPasswordHint(next.recoveryRequired ? null : password)
+    setSessionExpired(false)
     setSession(next)
+    await new LocalRepository(next.user.id).cacheVault(next.user.vault)
   }
 
   function completeRecovery(next: AuthSession) {
@@ -161,9 +197,14 @@ function App() {
   }
 
   async function logout() {
+    const current = session
     try {
-      await api.logout()
+      if (navigator.onLine) await api.logout()
     } finally {
+      if (current) {
+        const pending = await new LocalRepository(current.user.id).pendingCount()
+        if (pending === 0) await new LocalRepository(current.user.id).clearAll()
+      }
       resetSession()
     }
   }
@@ -191,7 +232,14 @@ function App() {
     )
   }
 
-  if (!session) return <Login onLogin={login} />
+  if (!session) {
+    return (
+      <Login
+        onLogin={login}
+        banner={sessionExpired ? t('errors.api.sessionExpired') : undefined}
+      />
+    )
+  }
 
   return (
     <VaultProvider>
@@ -199,14 +247,14 @@ function App() {
         <RestoredUserRecovery
           user={session.user}
           onComplete={completeRecovery}
-          onCancel={resetSession}
+          onCancel={() => resetSession()}
         />
       ) : (
         <AuthenticatedApp
           session={session}
           passwordHint={passwordHint}
           onLogout={logout}
-          onSessionEnded={resetSession}
+          onSessionEnded={() => resetSession({ wipeStorage: false })}
           onUserUpdated={(user) => {
             setSession((prev) => {
               if (!prev) return prev
@@ -215,6 +263,7 @@ function App() {
               return next
             })
             setPasswordHint(null)
+            void new LocalRepository(user.id).cacheVault(user.vault)
           }}
         />
       )}

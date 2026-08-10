@@ -212,7 +212,11 @@ interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
 }
 
 interface NoteRevisionRepository : JpaRepository<NoteRevisionEntity, UUID> {
-    fun findByNoteIdAndSourceNoteVersion(noteId: UUID, sourceNoteVersion: Long): NoteRevisionEntity?
+    fun findByNoteIdAndSourceNoteVersionAndOrigin(
+        noteId: UUID,
+        sourceNoteVersion: Long,
+        origin: NoteRevisionOrigin,
+    ): NoteRevisionEntity?
 
     fun findByIdAndNoteId(id: UUID, noteId: UUID): NoteRevisionEntity?
 

@@ -3,7 +3,9 @@ package com.ownkeep.api
 import com.ownkeep.api.storage.AttachmentBlobStore
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
 import jakarta.validation.constraints.Size
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.PageRequest
 import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.http.HttpStatus
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -37,6 +40,9 @@ data class CreateNoteRequest(
     val ciphertext: String,
     @field:Size(max = 100)
     val labelIds: List<UUID> = emptyList(),
+    val clientUpdatedAt: Instant? = null,
+    @field:Size(max = 36)
+    val clientMutationId: String? = null,
 )
 
 data class UpdateNoteRequest(
@@ -50,6 +56,9 @@ data class UpdateNoteRequest(
     @field:Size(max = 100)
     val labelIds: List<UUID>? = null,
     val version: Long? = null,
+    val clientUpdatedAt: Instant? = null,
+    @field:Size(max = 36)
+    val clientMutationId: String? = null,
 )
 
 data class AttachmentResponse(
@@ -72,6 +81,8 @@ data class NoteResponse(
     val attachments: List<AttachmentResponse>,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val clientUpdatedAt: Instant,
+    val clientMutationId: String?,
     val version: Long,
 )
 
@@ -81,6 +92,42 @@ data class NotesSyncResponse(
     val nextUpdatedAfter: Instant,
     val nextAfterId: UUID,
     val hasMore: Boolean,
+)
+
+data class ConflictResolveRequest(
+    @field:NotNull
+    val version: Long,
+    @field:NotNull
+    val localRevisionId: UUID,
+    @field:NotNull
+    val remoteRevisionId: UUID,
+    val type: NoteType,
+    @field:Size(max = 32)
+    val backgroundColor: String = "default",
+    val archived: Boolean = false,
+    val pinned: Boolean = false,
+    @field:NotBlank
+    val wrappedNoteKey: String,
+    @field:NotBlank
+    val ciphertext: String,
+    @field:NotBlank
+    val localSnapshotCiphertext: String,
+    @field:NotBlank
+    val remoteSnapshotCiphertext: String,
+    @field:Size(max = 100)
+    val labelIds: List<UUID> = emptyList(),
+    @field:NotNull
+    val clientUpdatedAt: Instant,
+    @field:NotBlank
+    @field:Size(max = 36)
+    val clientMutationId: String,
+)
+
+data class ConflictResolveResponse(
+    val note: NoteResponse,
+    val winner: String,
+    val localRevision: NoteRevisionSummaryResponse?,
+    val remoteRevision: NoteRevisionSummaryResponse?,
 )
 
 @Service
@@ -103,6 +150,7 @@ class NoteService(
         if (request.id != null && noteRepository.existsById(noteId)) {
             throw ApiException(HttpStatus.CONFLICT, "note_exists", "A note with this id already exists")
         }
+        val clientUpdatedAt = normalizeClientUpdatedAt(request.clientUpdatedAt, now)
         val note = noteRepository.save(
             NoteEntity(
                 id = noteId,
@@ -115,6 +163,8 @@ class NoteService(
                 ciphertext = ciphertext,
                 createdAt = now,
                 updatedAt = now,
+                clientUpdatedAt = clientUpdatedAt,
+                clientMutationId = normalizeMutationId(request.clientMutationId),
             ),
         )
         replaceLabels(note, labelIds)
@@ -151,10 +201,110 @@ class NoteService(
                 maxBytes = 512,
             )
         }
-        note.updatedAt = Instant.now()
+        val now = Instant.now()
+        note.updatedAt = now
+        if (request.clientUpdatedAt != null || request.clientMutationId != null) {
+            note.clientUpdatedAt = normalizeClientUpdatedAt(request.clientUpdatedAt, now)
+            note.clientMutationId = normalizeMutationId(request.clientMutationId) ?: note.clientMutationId
+        } else {
+            note.clientUpdatedAt = now
+        }
         noteRepository.save(note)
         request.labelIds?.let { replaceLabels(note, validateLabelIds(userId, it)) }
         return toResponse(note)
+    }
+
+    @Transactional
+    fun conflictResolve(userId: Long, id: UUID, request: ConflictResolveRequest): ConflictResolveResponse {
+        val note = noteRepository.findOwnedForUpdate(id, userId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
+        val now = Instant.now()
+        val localClientUpdatedAt = normalizeClientUpdatedAt(request.clientUpdatedAt, now)
+        val localMutationId = requireNotNull(normalizeMutationId(request.clientMutationId)) {
+            "clientMutationId is required"
+        }
+        val localWrapped = CryptoSupport.decodeRequired(request.wrappedNoteKey, "wrappedNoteKey", minBytes = 28, maxBytes = 512)
+        val localCipher = CryptoSupport.decodeRequired(request.ciphertext, "ciphertext", minBytes = 28, maxBytes = 2_000_000)
+        val labelIds = validateLabelIds(userId, request.labelIds)
+
+        if (request.version == note.version) {
+            note.type = request.type
+            note.backgroundColor = validateColor(request.backgroundColor)
+            note.archived = request.archived
+            note.pinned = request.pinned
+            note.wrappedNoteKey = localWrapped
+            note.ciphertext = localCipher
+            note.updatedAt = now
+            note.clientUpdatedAt = localClientUpdatedAt
+            note.clientMutationId = localMutationId
+            noteRepository.save(note)
+            replaceLabels(note, labelIds)
+            return ConflictResolveResponse(
+                note = toResponse(note),
+                winner = "local",
+                localRevision = null,
+                remoteRevision = null,
+            )
+        }
+
+        val sourceVersion = note.version
+        val localSnapshot = CryptoSupport.decodeRequired(
+            request.localSnapshotCiphertext,
+            "localSnapshotCiphertext",
+            minBytes = 28,
+            maxBytes = 3_145_728,
+        )
+        val remoteSnapshot = CryptoSupport.decodeRequired(
+            request.remoteSnapshotCiphertext,
+            "remoteSnapshotCiphertext",
+            minBytes = 28,
+            maxBytes = 3_145_728,
+        )
+        val remoteRevision = upsertConflictRevision(
+            noteId = id,
+            revisionId = request.remoteRevisionId,
+            sourceVersion = sourceVersion,
+            origin = NoteRevisionOrigin.CONFLICT_REMOTE,
+            wrappedNoteKey = note.wrappedNoteKey,
+            snapshotCiphertext = remoteSnapshot,
+            now = now,
+        )
+        val localRevision = upsertConflictRevision(
+            noteId = id,
+            revisionId = request.localRevisionId,
+            sourceVersion = sourceVersion,
+            origin = NoteRevisionOrigin.CONFLICT_LOCAL,
+            wrappedNoteKey = localWrapped,
+            snapshotCiphertext = localSnapshot,
+            now = now,
+        )
+
+        val localWins = localWins(
+            localUpdatedAt = localClientUpdatedAt,
+            localMutationId = localMutationId,
+            remoteUpdatedAt = note.clientUpdatedAt,
+            remoteMutationId = note.clientMutationId,
+        )
+        if (localWins) {
+            note.type = request.type
+            note.backgroundColor = validateColor(request.backgroundColor)
+            note.archived = request.archived
+            note.pinned = request.pinned
+            note.wrappedNoteKey = localWrapped
+            note.ciphertext = localCipher
+            note.clientUpdatedAt = localClientUpdatedAt
+            note.clientMutationId = localMutationId
+            replaceLabels(note, labelIds)
+        }
+        note.updatedAt = now
+        noteRepository.save(note)
+
+        return ConflictResolveResponse(
+            note = toResponse(note),
+            winner = if (localWins) "local" else "remote",
+            localRevision = localRevision.toSummary(),
+            remoteRevision = remoteRevision.toSummary(),
+        )
     }
 
     @Transactional
@@ -197,6 +347,38 @@ class NoteService(
         )
     }
 
+    private fun upsertConflictRevision(
+        noteId: UUID,
+        revisionId: UUID,
+        sourceVersion: Long,
+        origin: NoteRevisionOrigin,
+        wrappedNoteKey: ByteArray,
+        snapshotCiphertext: ByteArray,
+        now: Instant,
+    ): NoteRevisionEntity {
+        val existing = noteRevisionRepository.findByNoteIdAndSourceNoteVersionAndOrigin(noteId, sourceVersion, origin)
+        if (existing != null) return existing
+        if (noteRevisionRepository.existsById(revisionId)) {
+            throw ApiException(HttpStatus.CONFLICT, "revision_exists", "A revision with this id already exists")
+        }
+        return try {
+            noteRevisionRepository.saveAndFlush(
+                NoteRevisionEntity(
+                    id = revisionId,
+                    noteId = noteId,
+                    sourceNoteVersion = sourceVersion,
+                    origin = origin,
+                    wrappedNoteKey = wrappedNoteKey,
+                    snapshotCiphertext = snapshotCiphertext,
+                    createdAt = now,
+                ),
+            )
+        } catch (_: DataIntegrityViolationException) {
+            noteRevisionRepository.findByNoteIdAndSourceNoteVersionAndOrigin(noteId, sourceVersion, origin)
+                ?: throw ApiException(HttpStatus.CONFLICT, "revision_exists", "A revision with this id already exists")
+        }
+    }
+
     private fun findOwned(userId: Long, id: UUID): NoteEntity =
         noteRepository.findByIdAndUserIdAndDeletedAtIsNull(id, userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
@@ -227,7 +409,22 @@ class NoteService(
         return value
     }
 
-    private fun toResponse(note: NoteEntity): NoteResponse {
+    private fun normalizeClientUpdatedAt(value: Instant?, fallback: Instant): Instant {
+        val candidate = value ?: fallback
+        val skewLimit = fallback.plus(Duration.ofMinutes(5))
+        return if (candidate.isAfter(skewLimit)) skewLimit else candidate
+    }
+
+    private fun normalizeMutationId(value: String?): String? {
+        if (value.isNullOrBlank()) return null
+        val trimmed = value.trim()
+        if (trimmed.length > 36) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_mutation_id", "clientMutationId is too long")
+        }
+        return trimmed
+    }
+
+    fun toResponse(note: NoteEntity): NoteResponse {
         val attachments = attachmentRepository.findAllByNoteIdAndDeletedAtIsNullOrderByCreatedAtAscIdAsc(note.id).map {
             AttachmentResponse(
                 id = it.id,
@@ -249,10 +446,31 @@ class NoteService(
             attachments = attachments,
             createdAt = note.createdAt,
             updatedAt = note.updatedAt,
+            clientUpdatedAt = note.clientUpdatedAt,
+            clientMutationId = note.clientMutationId,
             version = note.version,
         )
     }
 }
+
+internal fun localWins(
+    localUpdatedAt: Instant,
+    localMutationId: String,
+    remoteUpdatedAt: Instant,
+    remoteMutationId: String?,
+): Boolean {
+    val cmp = localUpdatedAt.compareTo(remoteUpdatedAt)
+    if (cmp != 0) return cmp > 0
+    return localMutationId > (remoteMutationId ?: "")
+}
+
+internal fun NoteRevisionEntity.toSummary() = NoteRevisionSummaryResponse(
+    id = id,
+    createdAt = createdAt,
+    sourceVersion = sourceNoteVersion,
+    labelCiphertext = labelCiphertext?.let(CryptoSupport::encode),
+    origin = origin.name,
+)
 
 @RestController
 @RequestMapping("/notes")
@@ -284,6 +502,13 @@ class NoteController(private val noteService: NoteService) {
         @PathVariable id: UUID,
         @Valid @RequestBody request: UpdateNoteRequest,
     ) = noteService.update(principal(authentication).userId, id, request)
+
+    @PostMapping("/{id}/conflict-resolve")
+    fun conflictResolve(
+        authentication: UsernamePasswordAuthenticationToken,
+        @PathVariable id: UUID,
+        @Valid @RequestBody request: ConflictResolveRequest,
+    ) = noteService.conflictResolve(principal(authentication).userId, id, request)
 
     @DeleteMapping("/{id}")
     fun delete(

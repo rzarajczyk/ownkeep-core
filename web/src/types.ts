@@ -84,6 +84,8 @@ export interface Note {
   labelIds: string[]
   createdAt: string
   updatedAt: string
+  clientUpdatedAt?: string
+  clientMutationId?: string | null
   version: number
   items: ChecklistItem[]
   attachments: Attachment[]
@@ -119,6 +121,8 @@ export interface EncryptedNoteWire {
   attachments: EncryptedAttachmentWire[]
   createdAt: string
   updatedAt: string
+  clientUpdatedAt?: string
+  clientMutationId?: string | null
   version: number
 }
 
@@ -146,6 +150,32 @@ export interface EncryptedNoteWrite {
   wrappedNoteKey?: string
   ciphertext?: string
   labelIds?: string[]
+  clientUpdatedAt?: string
+  clientMutationId?: string
+}
+
+export interface ConflictResolveRequest {
+  version: number
+  localRevisionId: string
+  remoteRevisionId: string
+  type: NoteType
+  backgroundColor: string
+  archived: boolean
+  pinned: boolean
+  wrappedNoteKey: string
+  ciphertext: string
+  localSnapshotCiphertext: string
+  remoteSnapshotCiphertext: string
+  labelIds?: string[]
+  clientUpdatedAt: string
+  clientMutationId: string
+}
+
+export interface ConflictResolveResponse {
+  note: EncryptedNoteWire
+  winner: 'local' | 'remote' | string
+  localRevision: NoteRevisionSummary | null
+  remoteRevision: NoteRevisionSummary | null
 }
 
 export type KeepImportStatus = 'VALIDATING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
@@ -187,6 +217,7 @@ export interface NoteRevisionSummary {
   createdAt: string
   sourceVersion: number
   labelCiphertext: string | null
+  origin?: string
 }
 
 export interface CreateNoteRevisionRequest {
