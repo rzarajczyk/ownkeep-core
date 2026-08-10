@@ -101,6 +101,15 @@ interface AuthTokenRepository : JpaRepository<AuthTokenEntity, UUID> {
 interface NoteRepository : JpaRepository<NoteEntity, UUID> {
     fun findByIdAndUserIdAndDeletedAtIsNull(id: UUID, userId: Long): NoteEntity?
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+        """
+            select n from NoteEntity n
+            where n.id = :id and n.userId = :userId and n.deletedAt is null
+        """,
+    )
+    fun findOwnedForUpdate(@Param("id") id: UUID, @Param("userId") userId: Long): NoteEntity?
+
     @Query(
         value = """
             select * from notes n
@@ -147,6 +156,8 @@ interface NoteLabelRepository : JpaRepository<NoteLabelEntity, UUID> {
 }
 
 interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
+    fun findAllByNoteIdAndDeletedAtIsNullOrderByCreatedAtAscIdAsc(noteId: UUID): List<AttachmentEntity>
+
     fun findAllByNoteIdOrderByCreatedAtAscIdAsc(noteId: UUID): List<AttachmentEntity>
 
     @Query(
@@ -154,9 +165,23 @@ interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
             select a from AttachmentEntity a, NoteEntity n
             where a.id = :id and a.noteId = n.id
               and n.userId = :userId and n.deletedAt is null
+              and a.deletedAt is null
         """,
     )
-    fun findOwned(@Param("id") id: UUID, @Param("userId") userId: Long): AttachmentEntity?
+    fun findOwnedActive(@Param("id") id: UUID, @Param("userId") userId: Long): AttachmentEntity?
+
+    @Query(
+        """
+            select a from AttachmentEntity a, NoteEntity n
+            where a.id = :id and a.noteId = :noteId and a.noteId = n.id
+              and n.userId = :userId and n.deletedAt is null
+        """,
+    )
+    fun findOwnedOnNote(
+        @Param("id") id: UUID,
+        @Param("noteId") noteId: UUID,
+        @Param("userId") userId: Long,
+    ): AttachmentEntity?
 
     @Query(
         """
@@ -174,6 +199,50 @@ interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
     )
     fun findStoragePathsByUserId(@Param("userId") userId: Long): List<String>
 
+    @Query(
+        """
+            select a from AttachmentEntity a
+            where a.deletedAt is not null and a.deletedAt < :cutoff
+        """,
+    )
+    fun findSoftDeletedBefore(@Param("cutoff") cutoff: Instant, pageable: Pageable): List<AttachmentEntity>
+
     @Modifying
     fun deleteAllByNoteId(noteId: UUID): Int
+}
+
+interface NoteRevisionRepository : JpaRepository<NoteRevisionEntity, UUID> {
+    fun findByNoteIdAndSourceNoteVersion(noteId: UUID, sourceNoteVersion: Long): NoteRevisionEntity?
+
+    fun findByIdAndNoteId(id: UUID, noteId: UUID): NoteRevisionEntity?
+
+    @Query(
+        """
+            select r from NoteRevisionEntity r
+            where r.noteId = :noteId
+              and r.createdAt >= :cutoff
+              and (
+                :hasCursor = false
+                or r.createdAt < :createdBefore
+                or (r.createdAt = :createdBefore and r.id < :afterId)
+              )
+            order by r.createdAt desc, r.id desc
+        """,
+    )
+    fun findPage(
+        @Param("noteId") noteId: UUID,
+        @Param("cutoff") cutoff: Instant,
+        @Param("hasCursor") hasCursor: Boolean,
+        @Param("createdBefore") createdBefore: Instant,
+        @Param("afterId") afterId: UUID,
+        pageable: Pageable,
+    ): List<NoteRevisionEntity>
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from NoteRevisionEntity r where r.noteId = :noteId")
+    fun deleteAllByNoteId(@Param("noteId") noteId: UUID): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from NoteRevisionEntity r where r.createdAt < :cutoff")
+    fun deleteAllCreatedBefore(@Param("cutoff") cutoff: Instant): Int
 }

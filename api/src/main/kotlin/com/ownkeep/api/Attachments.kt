@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
+import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
@@ -36,6 +37,7 @@ class AttachmentService(
     private val blobStore: AttachmentBlobStore,
     private val properties: OwnKeepProperties,
 ) {
+    private val clock: Clock = Clock.systemUTC()
     @Transactional
     fun upload(
         userId: Long,
@@ -94,10 +96,10 @@ class AttachmentService(
                     storagePath = relativePath,
                     metaCiphertext = metaCiphertext,
                     sizeBytes = actualSize,
-                    createdAt = Instant.now(),
+                    createdAt = clock.instant(),
                 ),
             )
-            note.updatedAt = Instant.now()
+            note.updatedAt = clock.instant()
             noteRepository.save(note)
             return metadata.toResponse()
         } catch (ex: Exception) {
@@ -114,8 +116,26 @@ class AttachmentService(
 
     @Transactional(readOnly = true)
     fun open(userId: Long, id: UUID): StoredAttachment {
-        val metadata = attachmentRepository.findOwned(id, userId)
+        val metadata = attachmentRepository.findOwnedActive(id, userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "attachment_not_found", "Attachment not found")
+        if (!blobStore.exists(metadata.storagePath)) {
+            throw ApiException(HttpStatus.NOT_FOUND, "attachment_bytes_missing", "Attachment bytes are unavailable")
+        }
+        return StoredAttachment(metadata, blobStore.open(metadata.storagePath))
+    }
+
+    @Transactional(readOnly = true)
+    fun openRetained(userId: Long, noteId: UUID, attachmentId: UUID): StoredAttachment {
+        noteRepository.findByIdAndUserIdAndDeletedAtIsNull(noteId, userId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
+        val metadata = attachmentRepository.findOwnedOnNote(attachmentId, noteId, userId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "attachment_not_found", "Attachment not found")
+        val deletedAt = metadata.deletedAt
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "attachment_not_found", "Attachment not found")
+        val cutoff = clock.instant().minus(properties.noteRevisionRetention)
+        if (deletedAt.isBefore(cutoff)) {
+            throw ApiException(HttpStatus.NOT_FOUND, "attachment_not_found", "Attachment not found")
+        }
         if (!blobStore.exists(metadata.storagePath)) {
             throw ApiException(HttpStatus.NOT_FOUND, "attachment_bytes_missing", "Attachment bytes are unavailable")
         }
@@ -124,14 +144,14 @@ class AttachmentService(
 
     @Transactional
     fun delete(userId: Long, id: UUID) {
-        val metadata = attachmentRepository.findOwned(id, userId)
+        val metadata = attachmentRepository.findOwnedActive(id, userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "attachment_not_found", "Attachment not found")
         val note = noteRepository.findByIdAndUserIdAndDeletedAtIsNull(metadata.noteId, userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
-        attachmentRepository.delete(metadata)
-        note.updatedAt = Instant.now()
+        metadata.deletedAt = clock.instant()
+        attachmentRepository.save(metadata)
+        note.updatedAt = clock.instant()
         noteRepository.save(note)
-        blobStore.deleteAfterCommit(listOf(metadata.storagePath))
     }
 
     private fun AttachmentEntity.toResponse() = AttachmentResponse(
@@ -171,16 +191,17 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         @PathVariable id: UUID,
     ): ResponseEntity<InputStreamResource> {
         val principal = authentication.principal as OwnKeepPrincipal
-        val stored = attachmentService.open(principal.userId, id)
-        val disposition = ContentDisposition.attachment()
-            .filename("attachment.bin", StandardCharsets.UTF_8)
-            .build()
-        return ResponseEntity.ok()
-            .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
-            .header("X-Content-Type-Options", "nosniff")
-            .contentType(MediaType.APPLICATION_OCTET_STREAM)
-            .contentLength(stored.metadata.sizeBytes)
-            .body(InputStreamResource(stored.content))
+        return attachmentResponse(attachmentService.open(principal.userId, id))
+    }
+
+    @GetMapping("/notes/{noteId}/retained-attachments/{attachmentId}")
+    fun downloadRetained(
+        authentication: UsernamePasswordAuthenticationToken,
+        @PathVariable noteId: UUID,
+        @PathVariable attachmentId: UUID,
+    ): ResponseEntity<InputStreamResource> {
+        val principal = authentication.principal as OwnKeepPrincipal
+        return attachmentResponse(attachmentService.openRetained(principal.userId, noteId, attachmentId))
     }
 
     @DeleteMapping("/attachments/{id}")
@@ -191,5 +212,17 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         val principal = authentication.principal as OwnKeepPrincipal
         attachmentService.delete(principal.userId, id)
         return ResponseEntity.noContent().build()
+    }
+
+    private fun attachmentResponse(stored: StoredAttachment): ResponseEntity<InputStreamResource> {
+        val disposition = ContentDisposition.attachment()
+            .filename("attachment.bin", StandardCharsets.UTF_8)
+            .build()
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+            .header("X-Content-Type-Options", "nosniff")
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .contentLength(stored.metadata.sizeBytes)
+            .body(InputStreamResource(stored.content))
     }
 }

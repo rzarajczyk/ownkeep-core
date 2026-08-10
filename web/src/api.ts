@@ -6,7 +6,14 @@ import type {
   EncryptedNoteWrite,
   KdfParams,
   ManagedUser,
+  NoteRevisionDetail,
+  NoteRevisionPage,
+  NoteRevisionSummary,
   NotesPage,
+  CreateNoteRevisionRequest,
+  CreateNoteRevisionResponse,
+  RestoreNoteRevisionRequest,
+  RestoreNoteRevisionResponse,
   RestoreUserResponse,
   User,
   VaultInfo,
@@ -264,6 +271,57 @@ class ApiClient {
     })
   }
 
+  createNoteRevision(noteId: string, payload: CreateNoteRevisionRequest) {
+    return this.request<CreateNoteRevisionResponse>(
+      `/notes/${encodeURIComponent(noteId)}/revisions`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    )
+  }
+
+  listNoteRevisions(
+    noteId: string,
+    params: { createdBefore?: string; afterId?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ) {
+    const query = new URLSearchParams({ limit: String(params.limit ?? 50) })
+    if (params.createdBefore) query.set('created_before', params.createdBefore)
+    if (params.afterId) query.set('after_id', params.afterId)
+    return this.request<NoteRevisionPage>(
+      `/notes/${encodeURIComponent(noteId)}/revisions?${query}`,
+      { signal },
+    )
+  }
+
+  getNoteRevision(noteId: string, revisionId: string, signal?: AbortSignal) {
+    return this.request<NoteRevisionDetail>(
+      `/notes/${encodeURIComponent(noteId)}/revisions/${encodeURIComponent(revisionId)}`,
+      { signal },
+    )
+  }
+
+  updateNoteRevisionLabel(noteId: string, revisionId: string, labelCiphertext: string | null) {
+    return this.request<NoteRevisionSummary>(
+      `/notes/${encodeURIComponent(noteId)}/revisions/${encodeURIComponent(revisionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ labelCiphertext }),
+      },
+    )
+  }
+
+  restoreNoteRevision(noteId: string, revisionId: string, payload: RestoreNoteRevisionRequest) {
+    return this.request<RestoreNoteRevisionResponse>(
+      `/notes/${encodeURIComponent(noteId)}/revisions/${encodeURIComponent(revisionId)}/restore`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    )
+  }
+
   listLabels(signal?: AbortSignal) {
     return this.request<EncryptedLabelWire[]>('/labels', { signal })
   }
@@ -370,6 +428,20 @@ class ApiClient {
     const headers = new Headers()
     if (this.token) headers.set('Authorization', `Bearer ${this.token}`)
     const response = await fetch(`${API_PREFIX}${path}`, { headers, signal })
+    if (response.status === 401) this.unauthorizedHandler?.()
+    if (!response.ok) {
+      throw new ApiError('Could not load attachment.', response.status, undefined, 'attachment_load_failed')
+    }
+    return response.arrayBuffer()
+  }
+
+  async retainedAttachmentCipherBlob(noteId: string, attachmentId: string, signal?: AbortSignal) {
+    const headers = new Headers()
+    if (this.token) headers.set('Authorization', `Bearer ${this.token}`)
+    const response = await fetch(
+      `${API_PREFIX}/notes/${encodeURIComponent(noteId)}/retained-attachments/${encodeURIComponent(attachmentId)}`,
+      { headers, signal },
+    )
     if (response.status === 401) this.unauthorizedHandler?.()
     if (!response.ok) {
       throw new ApiError('Could not load attachment.', response.status, undefined, 'attachment_load_failed')

@@ -24,6 +24,8 @@ data class OwnKeepProperties(
     var tokenTtl: Duration = Duration.ofDays(30),
     /** How long soft-deleted accounts are retained before permanent purge. */
     var deletedUserRetention: Duration = Duration.ofDays(60),
+    /** How long note revisions and retained soft-deleted attachments are kept. */
+    var noteRevisionRetention: Duration = Duration.ofDays(30),
     var maxSyncLimit: Int = 200,
     var emailVerificationRequired: Boolean = false,
     var publicBaseUrl: String = "",

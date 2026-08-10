@@ -8,6 +8,14 @@ import {
   unwrapNoteKey,
   wrapNoteKey,
 } from './noteCodec'
+import {
+  REVISION_LABEL_MAX_LENGTH,
+  buildRevisionPayload,
+  decryptRevisionLabel,
+  decryptRevisionPayload,
+  encryptRevisionLabel,
+  encryptRevisionPayload,
+} from './revisionCodec'
 import { initializeVault, unlockVaultWithPassword, unlockVaultWithRecovery } from './vault'
 
 describe('crypto', () => {
@@ -62,5 +70,47 @@ describe('crypto', () => {
     expect(decrypted.title).toBe('Hi')
     const labelCipher = await encryptLabelName(vaultKey, 'Work')
     expect(await decryptLabelName(vaultKey, labelCipher)).toBe('Work')
+  })
+
+  it('encrypts revision snapshots and labels with revision-scoped AAD', async () => {
+    const vaultKey = randomBytes(32)
+    const noteKey = randomBytes(32)
+    const noteId = crypto.randomUUID()
+    const revisionId = crypto.randomUUID()
+    const payload = buildRevisionPayload({
+      title: 'Draft',
+      contentRaw: 'Body',
+      items: [],
+      type: 'TEXT',
+      backgroundColor: 'default',
+      archived: false,
+      pinned: true,
+      labelIds: [crypto.randomUUID()],
+      attachments: [
+        {
+          id: crypto.randomUUID(),
+          originalFilename: 'photo.png',
+          mimeType: 'image/png',
+          kind: 'IMAGE',
+          sizeBytes: 128,
+        },
+      ],
+    })
+    const cipher = await encryptRevisionPayload(noteId, revisionId, noteKey, payload)
+    const decrypted = await decryptRevisionPayload(noteId, revisionId, noteKey, cipher)
+    expect(decrypted.title).toBe('Draft')
+    expect(decrypted.attachments[0]?.originalFilename).toBe('photo.png')
+
+    await expect(decryptRevisionPayload(noteId, crypto.randomUUID(), noteKey, cipher)).rejects.toThrow()
+    await expect(decryptRevisionPayload(crypto.randomUUID(), revisionId, noteKey, cipher)).rejects.toThrow()
+
+    const labelCipher = await encryptRevisionLabel(vaultKey, noteId, revisionId, 'Before cleanup')
+    expect(await decryptRevisionLabel(vaultKey, noteId, revisionId, labelCipher)).toBe('Before cleanup')
+    await expect(
+      decryptRevisionLabel(vaultKey, noteId, crypto.randomUUID(), labelCipher),
+    ).rejects.toThrow()
+    await expect(
+      encryptRevisionLabel(vaultKey, noteId, revisionId, 'x'.repeat(REVISION_LABEL_MAX_LENGTH + 1)),
+    ).rejects.toThrow(/at most/)
   })
 })

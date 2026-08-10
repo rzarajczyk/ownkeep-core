@@ -181,3 +181,52 @@ export interface NotesPage {
 }
 
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
+
+export interface NoteRevisionSummary {
+  id: string
+  createdAt: string
+  sourceVersion: number
+  labelCiphertext: string | null
+}
+
+export interface CreateNoteRevisionRequest {
+  id: string
+  sourceVersion: number
+  wrappedNoteKey: string
+  snapshotCiphertext: string
+}
+
+export interface CreateNoteRevisionResponse {
+  created: boolean
+  revision: NoteRevisionSummary
+}
+
+export interface NoteRevisionPage {
+  items: NoteRevisionSummary[]
+  nextCreatedAt: string | null
+  nextAfterId: string | null
+  hasMore: boolean
+}
+
+export interface NoteRevisionDetail extends NoteRevisionSummary {
+  wrappedNoteKey: string
+  snapshotCiphertext: string
+}
+
+export interface RestoreNoteRevisionRequest {
+  expectedVersion: number
+  undoRevision: CreateNoteRevisionRequest
+  type: NoteType
+  backgroundColor: string
+  archived: boolean
+  pinned: boolean
+  wrappedNoteKey: string
+  ciphertext: string
+  labelIds: string[]
+  attachmentIds: string[]
+}
+
+export interface RestoreNoteRevisionResponse {
+  note: EncryptedNoteWire
+  unavailableAttachmentIds: string[]
+}

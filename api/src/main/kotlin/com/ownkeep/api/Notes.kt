@@ -89,6 +89,7 @@ class NoteService(
     private val labelRepository: LabelRepository,
     private val noteLabelRepository: NoteLabelRepository,
     private val attachmentRepository: AttachmentRepository,
+    private val noteRevisionRepository: NoteRevisionRepository,
     private val attachmentBlobStore: AttachmentBlobStore,
     private val properties: OwnKeepProperties,
 ) {
@@ -164,6 +165,7 @@ class NoteService(
         note.updatedAt = now
         noteRepository.save(note)
         noteLabelRepository.deleteAllByNoteId(id)
+        noteRevisionRepository.deleteAllByNoteId(id)
         val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(id)
         attachmentRepository.deleteAllByNoteId(id)
         attachmentBlobStore.deleteAfterCommit(attachments.map { it.storagePath })
@@ -226,7 +228,7 @@ class NoteService(
     }
 
     private fun toResponse(note: NoteEntity): NoteResponse {
-        val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(note.id).map {
+        val attachments = attachmentRepository.findAllByNoteIdAndDeletedAtIsNullOrderByCreatedAtAscIdAsc(note.id).map {
             AttachmentResponse(
                 id = it.id,
                 metaCiphertext = CryptoSupport.encode(it.metaCiphertext),

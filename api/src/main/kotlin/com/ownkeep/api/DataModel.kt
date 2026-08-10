@@ -169,4 +169,25 @@ class AttachmentEntity(
     var sizeBytes: Long = 0,
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
+    @Column(name = "deleted_at")
+    var deletedAt: Instant? = null,
+)
+
+@Entity
+@Table(name = "note_revisions")
+class NoteRevisionEntity(
+    @Id
+    var id: UUID = UUID.randomUUID(),
+    @Column(name = "note_id", nullable = false)
+    var noteId: UUID = UUID.randomUUID(),
+    @Column(name = "source_note_version", nullable = false)
+    var sourceNoteVersion: Long = 0,
+    @Column(name = "wrapped_note_key", nullable = false, columnDefinition = "bytea")
+    var wrappedNoteKey: ByteArray = ByteArray(0),
+    @Column(name = "snapshot_ciphertext", nullable = false, columnDefinition = "bytea")
+    var snapshotCiphertext: ByteArray = ByteArray(0),
+    @Column(name = "label_ciphertext", columnDefinition = "bytea")
+    var labelCiphertext: ByteArray? = null,
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
 )

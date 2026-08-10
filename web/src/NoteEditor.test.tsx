@@ -5,13 +5,33 @@ import { NoteEditor } from './NoteEditor'
 import * as notesCipher from './notesCipher'
 import type { Note } from './types'
 
-vi.mock('./api', () => ({
-  api: {
-    updateNote: vi.fn(),
-    note: vi.fn(),
-    uploadAttachment: vi.fn(),
-    deleteAttachment: vi.fn(),
-  },
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api')>()
+  return {
+    ...actual,
+    api: {
+      updateNote: vi.fn(),
+      note: vi.fn(),
+      uploadAttachment: vi.fn(),
+      deleteAttachment: vi.fn(),
+      createNoteRevision: vi.fn(),
+      listNoteRevisions: vi.fn(),
+      getNoteRevision: vi.fn(),
+      updateNoteRevisionLabel: vi.fn(),
+      restoreNoteRevision: vi.fn(),
+      listLabels: vi.fn(),
+    },
+  }
+})
+
+vi.mock('./revisionSnapshots', () => ({
+  buildEncryptedRevision: vi.fn(async (note: Note) => ({
+    id: 'rev-baseline',
+    sourceVersion: note.version,
+    wrappedNoteKey: 'wk',
+    snapshotCiphertext: 'snap',
+  })),
+  decryptRevisionDetail: vi.fn(),
 }))
 
 vi.mock('./vault/VaultContext', () => ({
@@ -73,6 +93,23 @@ describe('NoteEditor', () => {
     HTMLDialogElement.prototype.showModal = vi.fn()
     HTMLDialogElement.prototype.close = vi.fn()
     vi.mocked(api.updateNote).mockReset()
+    vi.mocked(api.createNoteRevision).mockReset()
+    vi.mocked(api.createNoteRevision).mockResolvedValue({
+      created: true,
+      revision: {
+        id: 'rev-baseline',
+        createdAt: '2026-01-01T00:00:00Z',
+        sourceVersion: 1,
+        labelCiphertext: null,
+      },
+    })
+    vi.mocked(api.listNoteRevisions).mockReset()
+    vi.mocked(api.listNoteRevisions).mockResolvedValue({
+      items: [],
+      nextCreatedAt: null,
+      nextAfterId: null,
+      hasMore: false,
+    })
     vi.mocked(api.updateNote).mockImplementation(async (id, payload) => ({
       id,
       type: payload.type ?? 'TEXT',
@@ -236,5 +273,51 @@ describe('NoteEditor', () => {
       expect.objectContaining({ contentRaw: 'Hello from edit' }),
       expect.anything(),
     )
+  })
+
+  it('does not create a revision when closing without changes', async () => {
+    const onClose = vi.fn()
+    render(
+      <NoteEditor
+        note={baseNote}
+        ensureLabelIds={async () => []}
+        onClose={onClose}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText('Close editor'))
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(api.createNoteRevision).not.toHaveBeenCalled()
+  })
+
+  it('creates a revision when closing after a saved edit', async () => {
+    const onClose = vi.fn()
+    render(
+      <NoteEditor
+        note={baseNote}
+        ensureLabelIds={async () => []}
+        onClose={onClose}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Saved' } })
+    await waitFor(() => expect(api.updateNote).toHaveBeenCalled())
+    // Baseline runs before the first mutation.
+    await waitFor(() => expect(api.createNoteRevision).toHaveBeenCalled())
+    vi.mocked(api.createNoteRevision).mockClear()
+
+    fireEvent.click(screen.getByLabelText('Close editor'))
+
+    await waitFor(() => expect(api.createNoteRevision).toHaveBeenCalled())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })

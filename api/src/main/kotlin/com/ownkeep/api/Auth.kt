@@ -199,6 +199,9 @@ class AdminBootstrapRunner(
         require(properties.deletedUserRetention.isNegative.not() && properties.deletedUserRetention.isZero.not()) {
             "ownkeep.deleted-user-retention must be positive"
         }
+        require(properties.noteRevisionRetention.isNegative.not() && properties.noteRevisionRetention.isZero.not()) {
+            "ownkeep.note-revision-retention must be positive"
+        }
         require(properties.maxSyncLimit > 0) { "ownkeep.max-sync-limit must be positive" }
         require(properties.loginRateLimit.maxAttemptsPerIp > 0) {
             "ownkeep.login-rate-limit.max-attempts-per-ip must be positive"

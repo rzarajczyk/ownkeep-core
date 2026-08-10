@@ -302,6 +302,7 @@ Usually unnecessary when credentials are embedded in `OWNKEEP_DATABASE_URL`.
 |----------|---------|-------------|
 | `OWNKEEP_TOKEN_TTL` | `30d` | Bearer token lifetime |
 | `OWNKEEP_DELETED_USER_RETENTION` | `60d` | How long soft-deleted accounts are kept before permanent purge |
+| `OWNKEEP_NOTE_REVISION_RETENTION` | `30d` | How long note change history and soft-deleted attachment blobs are retained |
 | `OWNKEEP_LOGIN_MAX_ATTEMPTS_PER_IP` | `10` | Max `/auth/login` attempts per client IP per window |
 | `OWNKEEP_LOGIN_MAX_ATTEMPTS_PER_EMAIL` | `5` | Max `/auth/login` attempts per email per window |
 | `OWNKEEP_LOGIN_RATE_LIMIT_WINDOW` | `1m` | Login rate-limit window |

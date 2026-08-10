@@ -606,6 +606,172 @@ class OwnKeepIntegrationTest {
             .andExpect(jsonPath("$.token").isString)
     }
 
+    @Test
+    fun `note revisions soft-delete attachments and restore membership`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        val bobToken = login("bob@example.com", "bob-password")
+        initializeVault(aliceToken, 21)
+        val noteId = createEncryptedNote(aliceToken, 21)
+
+        val noteJson = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        val version = noteJson.get("version").asLong()
+        val wrapped = noteJson.get("wrappedNoteKey").asText()
+        val cipher = noteJson.get("ciphertext").asText()
+
+        val revisionId = UUID.randomUUID()
+        val snapshot = b64(ByteArray(96) { 22 })
+        mockMvc.perform(
+            post("/notes/$noteId/revisions")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "id": "$revisionId",
+                      "sourceVersion": $version,
+                      "wrappedNoteKey": "$wrapped",
+                      "snapshotCiphertext": "$snapshot"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.created").value(true))
+            .andExpect(jsonPath("$.revision.id").value(revisionId.toString()))
+            .andExpect(jsonPath("$.revision.labelCiphertext").doesNotExist())
+
+        mockMvc.perform(
+            post("/notes/$noteId/revisions")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "id": "${UUID.randomUUID()}",
+                      "sourceVersion": $version,
+                      "wrappedNoteKey": "$wrapped",
+                      "snapshotCiphertext": "$snapshot"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.created").value(false))
+            .andExpect(jsonPath("$.revision.id").value(revisionId.toString()))
+
+        mockMvc.perform(
+            patch("/notes/$noteId/revisions/$revisionId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"label":"secret"}"""),
+        )
+            .andExpect(status().isBadRequest)
+
+        val labelCipher = b64(ByteArray(48) { 23 })
+        mockMvc.perform(
+            patch("/notes/$noteId/revisions/$revisionId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"labelCiphertext":"$labelCipher"}"""),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.labelCiphertext").value(labelCipher))
+
+        mockMvc.perform(get("/notes/$noteId/revisions").header("Authorization", "Bearer $bobToken"))
+            .andExpect(status().isNotFound)
+
+        val attachmentId = UUID.randomUUID()
+        val meta = b64(ByteArray(48) { 24 })
+        mockMvc.perform(
+            multipart("/notes/$noteId/attachments")
+                .file(MockMultipartFile("file", "secret.bin", "application/octet-stream", ByteArray(16) { 25 }))
+                .file(MockMultipartFile("metaCiphertext", null, "text/plain", meta.toByteArray()))
+                .file(MockMultipartFile("attachmentId", null, "text/plain", attachmentId.toString().toByteArray()))
+                .header("Authorization", "Bearer $aliceToken"),
+        )
+            .andExpect(status().isCreated)
+
+        val afterUpload = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.attachments.length()").value(1))
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        assertThat(afterUpload.get("version").asLong()).isGreaterThanOrEqualTo(version)
+
+        mockMvc.perform(delete("/attachments/$attachmentId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isNoContent)
+
+        mockMvc.perform(get("/attachments/$attachmentId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isNotFound)
+
+        mockMvc.perform(
+            get("/notes/$noteId/retained-attachments/$attachmentId")
+                .header("Authorization", "Bearer $aliceToken"),
+        )
+            .andExpect(status().isOk)
+
+        mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.attachments.length()").value(0))
+
+        val afterDelete = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        val versionAfterDelete = afterDelete.get("version").asLong()
+
+        val undoId = UUID.randomUUID()
+        val restoredCipher = b64(ByteArray(64) { 26 })
+        val restoredWrap = b64(ByteArray(48) { 27 })
+        mockMvc.perform(
+            post("/notes/$noteId/revisions/$revisionId/restore")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "expectedVersion": $versionAfterDelete,
+                      "undoRevision": {
+                        "id": "$undoId",
+                        "sourceVersion": $versionAfterDelete,
+                        "wrappedNoteKey": "$wrapped",
+                        "snapshotCiphertext": "${b64(ByteArray(80) { 28 })}"
+                      },
+                      "type": "TEXT",
+                      "backgroundColor": "default",
+                      "archived": false,
+                      "pinned": true,
+                      "wrappedNoteKey": "$restoredWrap",
+                      "ciphertext": "$restoredCipher",
+                      "labelIds": [],
+                      "attachmentIds": ["$attachmentId"]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.note.pinned").value(true))
+            .andExpect(jsonPath("$.note.ciphertext").value(restoredCipher))
+            .andExpect(jsonPath("$.note.attachments.length()").value(1))
+            .andExpect(jsonPath("$.note.attachments[0].id").value(attachmentId.toString()))
+            .andExpect(jsonPath("$.unavailableAttachmentIds").isEmpty)
+
+        mockMvc.perform(get("/attachments/$attachmentId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+    }
+
     private fun login(email: String, password: String): String {
         val result = mockMvc.perform(
             post("/auth/login")

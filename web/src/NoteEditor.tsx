@@ -68,12 +68,16 @@ import {
 import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
+import { HistoryToolButton, NoteChangeHistory } from './NoteChangeHistory'
 import {
   decryptAttachmentMeta,
   encryptAttachmentBytes,
   encryptAttachmentMeta,
   inferAttachmentKind,
 } from './crypto/attachmentCodec'
+import { buildNotePayload, encryptNotePayload, wrapNoteKey } from './crypto/noteCodec'
+import { decryptLabelName } from './crypto/labelCodec'
+import type { RevisionPlainPayload } from './crypto/revisionCodec'
 import {
   domSelectionRect,
   placeFormattingToolbar,
@@ -93,13 +97,14 @@ import {
   type TextareaSnapshot,
 } from './markdownFormatting'
 import { renderMarkdown, renderMarkdownInline } from './markdown/renderMarkdown'
-import { fromWire, getCachedNoteKey, toWire } from './notesCipher'
+import { fromWire, getCachedNoteKey, setCachedNoteKey, toWire } from './notesCipher'
 import { selectionFromPreviewClick, type PendingEditorSelection } from './previewCursor'
 import { RenderedMarkdown } from './RenderedMarkdown'
+import { buildEncryptedRevision } from './revisionSnapshots'
 import { RichBlockEditor } from './richtext/RichBlockEditor'
 import { RichInlineEditor } from './richtext/RichInlineEditor'
 import { Tooltip } from './Tooltip'
-import type { Attachment, ChecklistItem, Note, SaveState } from './types'
+import type { Attachment, ChecklistItem, Note, NoteRevisionDetail, SaveState } from './types'
 import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
 import { useVault } from './vault/VaultContext'
 
@@ -415,6 +420,13 @@ export function NoteEditor({
   const [uploadError, setUploadError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const baselineEnvelopeRef = useRef<Awaited<ReturnType<typeof buildEncryptedRevision>> | null>(null)
+  const baselinePromiseRef = useRef<Promise<void> | null>(null)
+  const baselineDoneRef = useRef(false)
+  const skipBaselineRef = useRef(Boolean(cancelIfEmpty))
+  const openingNoteRef = useRef(note)
   const [labelMenuOpen, setLabelMenuOpen] = useState(false)
   const [colorMenuOpen, setColorMenuOpen] = useState(false)
   const [formattingSelectionAnchor, setFormattingSelectionAnchor] =
@@ -445,6 +457,52 @@ export function NoteEditor({
     titleRef.current?.focus()
     return () => dialog.close()
   }, [])
+
+  useEffect(() => {
+    if (skipBaselineRef.current || !vaultKey) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const noteKey = getCachedNoteKey(note.id)
+        if (!noteKey) return
+        const envelope = await buildEncryptedRevision(note, vaultKey, noteKey)
+        if (!cancelled) baselineEnvelopeRef.current = envelope
+      } catch {
+        // Baseline encryption can retry on first mutation if this fails.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // Capture the opening snapshot once for this editor mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id, vaultKey])
+
+  const ensureBaseline = useCallback(async () => {
+    if (skipBaselineRef.current || baselineDoneRef.current) return
+    if (baselinePromiseRef.current) {
+      await baselinePromiseRef.current
+      return
+    }
+    baselinePromiseRef.current = (async () => {
+      if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+      let envelope = baselineEnvelopeRef.current
+      if (!envelope) {
+        const opening = openingNoteRef.current
+        const noteKey = getCachedNoteKey(opening.id)
+        if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
+        envelope = await buildEncryptedRevision(opening, vaultKey, noteKey)
+        baselineEnvelopeRef.current = envelope
+      }
+      await api.createNoteRevision(openingNoteRef.current.id, envelope)
+      baselineDoneRef.current = true
+    })()
+    try {
+      await baselinePromiseRef.current
+    } finally {
+      baselinePromiseRef.current = null
+    }
+  }, [t, vaultKey])
 
   useEffect(() => {
     if (
@@ -620,6 +678,7 @@ export function NoteEditor({
     setSaveState('saving')
     setSaveError('')
     try {
+      await ensureBaseline()
       const labelIds = await ensureLabelIds(capturedDraft.labels)
       const withLabels = { ...capturedDraft, labelIds }
       latestDraft.current = withLabels
@@ -704,7 +763,7 @@ export function NoteEditor({
         void flush()
       }
     }
-  }, [ensureLabelIds, onCanonical, onOptimistic, t, vaultKey])
+  }, [ensureBaseline, ensureLabelIds, onCanonical, onOptimistic, t, vaultKey])
 
   const flushRef = useRef(flush)
   flushRef.current = flush
@@ -1206,6 +1265,7 @@ export function NoteEditor({
     setUploadError('')
     setUploadProgress(0)
     try {
+      await ensureBaseline()
       const noteKey = getCachedNoteKey(draft.id)
       if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
       const attachmentId = createId()
@@ -1265,6 +1325,7 @@ export function NoteEditor({
 
   async function deleteAttachment(id: string) {
     setUploadError('')
+    await ensureBaseline()
     await api.deleteAttachment(id)
     const next = {
       ...latestDraft.current,
@@ -1296,6 +1357,7 @@ export function NoteEditor({
   async function close() {
     if (closing) return
     setClosing(true)
+    setHistoryError('')
     if (cancelIfEmpty && isNoteEmpty(latestDraft.current)) {
       try {
         await onDiscard(latestDraft.current)
@@ -1315,7 +1377,109 @@ export function NoteEditor({
         return
       }
     } while (requestedRevision.current > savedRevision.current)
+
+    // No server-side change this session → do not add a history entry.
+    if (latestDraft.current.version === openingNoteRef.current.version) {
+      onClose()
+      return
+    }
+
+    if (!vaultKey) {
+      setHistoryError(t('editor.history.snapshotFailed', { error: t('errors.vaultLocked') }))
+      setClosing(false)
+      return
+    }
+    try {
+      const noteKey = getCachedNoteKey(latestDraft.current.id)
+      if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
+      const envelope = await buildEncryptedRevision(latestDraft.current, vaultKey, noteKey)
+      await api.createNoteRevision(latestDraft.current.id, envelope)
+      baselineDoneRef.current = true
+    } catch (reason) {
+      setHistoryError(t('editor.history.snapshotFailed', { error: errorMessage(reason) }))
+      setClosing(false)
+      return
+    }
     onClose()
+  }
+
+  async function restoreRevision(
+    revisionId: string,
+    _detail: NoteRevisionDetail,
+    payload: RevisionPlainPayload,
+    revisionNoteKey: Uint8Array,
+  ) {
+    if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+    do {
+      await flush()
+      while (saving.current) {
+        await new Promise((resolve) => window.setTimeout(resolve, 25))
+      }
+      if (saveFailed.current) {
+        throw new Error(saveError || t('editor.saveError.vaultLocked'))
+      }
+    } while (requestedRevision.current > savedRevision.current)
+
+    const current = latestDraft.current
+    const currentNoteKey = getCachedNoteKey(current.id)
+    if (!currentNoteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
+    const undoRevision = await buildEncryptedRevision(current, vaultKey, currentNoteKey)
+
+    const existingLabels = await api.listLabels()
+    const existingLabelIds = new Set(existingLabels.map((label) => label.id))
+    const labelIds = payload.labelIds.filter((id) => existingLabelIds.has(id))
+    const labelMap = new Map<string, string>()
+    for (const wire of existingLabels) {
+      if (!labelIds.includes(wire.id)) continue
+      labelMap.set(wire.id, await decryptLabelName(vaultKey, wire.ciphertext))
+    }
+
+    const notePayload = buildNotePayload({
+      title: payload.title,
+      contentRaw: payload.contentRaw,
+      items: payload.items.map((item) => ({
+        ...item,
+        textRendered: '',
+      })),
+      labelIds,
+      type: payload.type,
+    })
+    const ciphertext = await encryptNotePayload(current.id, revisionNoteKey, notePayload)
+    const wrappedNoteKey = await wrapNoteKey(vaultKey, current.id, revisionNoteKey)
+    const response = await api.restoreNoteRevision(current.id, revisionId, {
+      expectedVersion: current.version,
+      undoRevision,
+      type: payload.type,
+      backgroundColor: payload.backgroundColor,
+      archived: payload.archived,
+      pinned: payload.pinned,
+      wrappedNoteKey,
+      ciphertext,
+      labelIds,
+      attachmentIds: payload.attachments.map((attachment) => attachment.id),
+    })
+
+    setCachedNoteKey(current.id, revisionNoteKey)
+    const canonical = await fromWire(response.note, vaultKey, labelMap)
+    latestDraft.current = canonical
+    requestedRevision.current = savedRevision.current
+    setDraft(canonical)
+    setSaveState('saved')
+    setSaveError('')
+    onCanonical(canonical)
+
+    if (response.unavailableAttachmentIds.length > 0) {
+      const names = payload.attachments
+        .filter((attachment) => response.unavailableAttachmentIds.includes(attachment.id))
+        .map((attachment) => attachment.originalFilename)
+      setHistoryError(
+        t('editor.history.unavailableAttachments', {
+          names: names.join(', ') || response.unavailableAttachmentIds.join(', '),
+        }),
+      )
+    } else {
+      setHistoryError('')
+    }
   }
 
   const menuLabels = useMemo(() => {
@@ -1760,6 +1924,20 @@ export function NoteEditor({
           </section>
         )}
 
+        {historyError && (
+          <div className="save-error" role="alert">
+            <span>{historyError}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryError('')
+                void close()
+              }}
+            >
+              <RotateCcw aria-hidden="true" /> {t('editor.history.retrySnapshot')}
+            </button>
+          </div>
+        )}
         {saveError && (
           <div className="save-error" role="alert">
             <span>{t('editor.saveError.preserved', { error: saveError })}</span>
@@ -1859,6 +2037,10 @@ export function NoteEditor({
                 <input type="file" onChange={(event) => void upload(event)} />
               </label>
             </Tooltip>
+            <HistoryToolButton
+              label={t('editor.history.open')}
+              onClick={() => setHistoryOpen(true)}
+            />
           </div>
           <div className="editor-tools editor-tools-right">
             <Tooltip label={draft.archived ? t('editor.toolbar.restore') : t('editor.toolbar.archive')}>
@@ -1886,6 +2068,16 @@ export function NoteEditor({
             </Tooltip>
           </div>
         </footer>
+        {vaultKey && (
+          <NoteChangeHistory
+            noteId={draft.id}
+            currentVersion={draft.version}
+            vaultKey={vaultKey}
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            onRestore={restoreRevision}
+          />
+        )}
       </div>
     </dialog>
   )
