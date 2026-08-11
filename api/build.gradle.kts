@@ -40,7 +40,6 @@ dependencies {
     implementation("org.commonmark:commonmark-ext-autolink:0.25.1")
     implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.25.1")
     implementation("com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20240325.1")
-    implementation("org.apache.tika:tika-core:3.2.3")
     implementation("com.google.cloud:google-cloud-storage:2.53.2")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
