@@ -114,6 +114,22 @@ class AppConfig {
 
         http
             .csrf { it.disable() }
+            .headers {
+                it.contentSecurityPolicy { csp ->
+                    csp.policyDirectives(
+                        "default-src 'self'; " +
+                            "base-uri 'self'; " +
+                            "connect-src 'self'; " +
+                            "font-src 'self'; " +
+                            "frame-ancestors 'self'; " +
+                            "img-src 'self' blob: data:; " +
+                            "object-src 'none'; " +
+                            "script-src 'self'; " +
+                            "style-src 'self' 'unsafe-inline'; " +
+                            "worker-src 'self'",
+                    )
+                }
+            }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .exceptionHandling {
                 it.authenticationEntryPoint(apiAuthenticationEntryPoint)

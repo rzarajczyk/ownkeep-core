@@ -139,6 +139,15 @@ interface LabelRepository : JpaRepository<LabelEntity, UUID> {
 interface NoteLabelRepository : JpaRepository<NoteLabelEntity, UUID> {
     @Query(
         """
+            select nl from NoteLabelEntity nl
+            where nl.noteId in :noteIds
+            order by nl.noteId, nl.labelId
+        """,
+    )
+    fun findAllByNoteIdIn(@Param("noteIds") noteIds: Collection<UUID>): List<NoteLabelEntity>
+
+    @Query(
+        """
             select nl.labelId from NoteLabelEntity nl
             where nl.noteId = :noteId
             order by nl.labelId
@@ -156,6 +165,15 @@ interface NoteLabelRepository : JpaRepository<NoteLabelEntity, UUID> {
 }
 
 interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
+    @Query(
+        """
+            select a from AttachmentEntity a
+            where a.noteId in :noteIds and a.deletedAt is null
+            order by a.noteId, a.createdAt, a.id
+        """,
+    )
+    fun findAllActiveByNoteIdIn(@Param("noteIds") noteIds: Collection<UUID>): List<AttachmentEntity>
+
     fun findAllByNoteIdAndDeletedAtIsNullOrderByCreatedAtAscIdAsc(noteId: UUID): List<AttachmentEntity>
 
     fun findAllByNoteIdOrderByCreatedAtAscIdAsc(noteId: UUID): List<AttachmentEntity>

@@ -8,25 +8,20 @@ marked.setOptions({
   breaks: false,
 })
 
-function attachmentImageSrc(destination: string, attachments: Attachment[]): string {
+function attachmentImageSrc(destination: string, attachments: Attachment[]): string | null {
   const trimmed = destination.trim()
-  if (!trimmed) return trimmed
+  if (!trimmed) return null
   const lower = trimmed.toLowerCase()
-  if (
-    lower.startsWith('http://') ||
-    lower.startsWith('https://') ||
-    lower.startsWith('/attachments/')
-  ) {
-    return trimmed
-  }
+  if (lower.startsWith('http://') || lower.startsWith('https://')) return null
+  if (lower.startsWith('/attachments/')) return trimmed
   const filename = trimmed.replace(/\\/g, '/').split('/').pop()?.trim() ?? ''
-  if (!filename) return trimmed
+  if (!filename) return null
   const match = attachments.find(
     (attachment) =>
       attachment.kind === 'IMAGE' &&
       attachment.originalFilename.toLowerCase() === filename.toLowerCase(),
   )
-  return match ? `/attachments/${match.id}` : trimmed
+  return match ? `/attachments/${match.id}` : null
 }
 
 function rewriteImageSources(html: string, attachments: Attachment[]): string {
@@ -34,7 +29,13 @@ function rewriteImageSources(html: string, attachments: Attachment[]): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   doc.querySelectorAll('img').forEach((img) => {
     const src = img.getAttribute('src')
-    if (src) img.setAttribute('src', attachmentImageSrc(src, attachments))
+    if (!src) return
+    const rewritten = attachmentImageSrc(src, attachments)
+    if (rewritten) {
+      img.setAttribute('src', rewritten)
+    } else {
+      img.removeAttribute('src')
+    }
   })
   return doc.body.innerHTML
 }

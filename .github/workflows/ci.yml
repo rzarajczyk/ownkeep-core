@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+  pull_request:
 
 jobs:
   api-tests:
@@ -46,8 +47,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run unit tests
         run: npm test
+
+      - name: Build production bundle
+        run: npm run build
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

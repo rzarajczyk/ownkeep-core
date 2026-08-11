@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { AppShell } from './AppShell'
+import { fromWire } from './notesCipher'
 import type { Note, User, VaultInfo } from './types'
 
 const vault: VaultInfo = {
@@ -123,6 +124,10 @@ describe('pinned notes layout', () => {
     indexedDB = new IDBFactory()
     vi.mocked(api.notes).mockReset()
     vi.mocked(api.listLabels).mockReset()
+    vi.mocked(fromWire).mockReset()
+    vi.mocked(fromWire).mockImplementation(
+      async (wire: { id: string }) => plaintextNotes.find((note) => note.id === wire.id)!,
+    )
     vi.mocked(api.listLabels).mockResolvedValue([])
     vi.mocked(api.notes).mockResolvedValue({
       items: plaintextNotes.map((note) => ({
@@ -163,5 +168,23 @@ describe('pinned notes layout', () => {
     render(<AppShell user={adminUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
     await waitFor(() => expect(api.notes).toHaveBeenCalled())
     expect(await screen.findByText('Pinned idea')).toBeVisible()
+  })
+
+  it('keeps healthy notes visible when one cached record cannot be decrypted', async () => {
+    vi.mocked(fromWire).mockImplementation(async (wire: { id: string }) => {
+      if (wire.id === 'corrupt') throw new Error('invalid ciphertext')
+      return plaintextNotes.find((note) => note.id === wire.id)!
+    })
+    const response = await vi.mocked(api.notes)({ limit: 200 })
+    const goodWire = response.items[0]!
+    vi.mocked(api.notes).mockResolvedValue({
+      ...response,
+      items: [goodWire, { ...goodWire, id: 'corrupt' }],
+    })
+
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+
+    expect(await screen.findByText('Grocery list')).toBeVisible()
+    expect(await screen.findByText(/Encrypted notes that could not be opened: 1/)).toBeVisible()
   })
 })

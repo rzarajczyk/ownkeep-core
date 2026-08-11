@@ -19,6 +19,10 @@ export interface OutboxUpsertOp {
   type: 'upsertNote'
   noteId: string
   payload: import('../types').EncryptedNoteWrite
+  /** Incremented whenever a newer mutation replaces this operation in place. */
+  generation: number
+  /** Opening snapshot uploaded before the first mutation to preserve history. */
+  baselineRevision?: import('../types').CreateNoteRevisionRequest
   createdAt: string
   updatedAt: string
 }

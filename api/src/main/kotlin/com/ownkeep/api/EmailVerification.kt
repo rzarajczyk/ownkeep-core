@@ -7,6 +7,7 @@ import org.springframework.mail.SimpleMailMessage
 import org.springframework.mail.javamail.JavaMailSender
 import org.springframework.mail.javamail.JavaMailSenderImpl
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionSynchronization
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.slf4j.LoggerFactory
@@ -77,6 +78,7 @@ class EmailVerificationService(
     private val clock: Clock = Clock.systemUTC()
     private val log = LoggerFactory.getLogger(javaClass)
 
+    @Transactional
     fun issueAndSendAfterCommit(user: UserEntity) {
         if (!properties.emailVerificationRequired) return
         if (user.role == UserRole.ADMIN || user.emailVerified) return
@@ -114,6 +116,7 @@ class EmailVerificationService(
         return raw
     }
 
+    @Transactional
     fun confirm(rawToken: String) {
         if (rawToken.length !in 16..256) {
             throw ApiException(HttpStatus.BAD_REQUEST, "invalid_verification_token", "Invalid verification token")
@@ -134,6 +137,7 @@ class EmailVerificationService(
     }
 
     /** Always succeeds with a generic outcome to avoid account enumeration. */
+    @Transactional
     fun resend(rawEmail: String, clientIp: String) {
         val config = properties.emailVerificationRateLimit
         loginRateLimiter.consume("verify-ip:$clientIp", config.maxAttemptsPerIp, config.window)?.let {
@@ -159,6 +163,7 @@ class EmailVerificationService(
         }
     }
 
+    @Transactional
     fun resendForUser(userId: Long) {
         val user = userRepository.findById(userId).orElse(null)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")

@@ -15,12 +15,11 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, ApiError } from './api'
 import { encryptLabelName } from './crypto/labelCodec'
 import { NoteCard } from './NoteCard'
-import { NoteEditor } from './NoteEditor'
 import { NotesMasonry } from './NotesMasonry'
 import { KeepImportDialog } from './KeepImportDialog'
 import { UserManagementDialog } from './UserManagementDialog'
@@ -38,12 +37,16 @@ import {
 import { newMutationId, nowIso } from './offline/lww'
 import { LocalRepository } from './offline/repository'
 import { SyncEngine, wireFromWrite } from './offline/syncEngine'
-import type { SyncStatus } from './offline/types'
+import type { StoredNoteRecord, SyncStatus } from './offline/types'
 import { useOnline } from './offline/useOnline'
 import { Tooltip } from './Tooltip'
-import type { EncryptedNoteWrite, Note, User } from './types'
+import type { CreateNoteRevisionRequest, EncryptedNoteWrite, Note, User } from './types'
 import { errorMessage } from './utils'
 import { useVault } from './vault/VaultContext'
+
+const NoteEditor = lazy(() =>
+  import('./NoteEditor').then((module) => ({ default: module.NoteEditor })),
+)
 
 interface AppShellProps {
   user: User
@@ -60,6 +63,22 @@ function noteMatchesQuery(note: Note, needle: string): boolean {
     return true
   }
   return false
+}
+
+async function decryptStoredNotes(
+  records: StoredNoteRecord[],
+  vaultKey: Uint8Array,
+  labelNames: Map<string, string>,
+): Promise<{ notes: Note[]; failedCount: number }> {
+  const settled = await Promise.allSettled(
+    records.map((record) => fromWire(record.wire, vaultKey, labelNames)),
+  )
+  return {
+    notes: settled
+      .filter((result): result is PromiseFulfilledResult<Note> => result.status === 'fulfilled')
+      .map((result) => result.value),
+    failedCount: settled.filter((result) => result.status === 'rejected').length,
+  }
 }
 
 function syncStatusLabel(
@@ -189,12 +208,12 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
     try {
       const labelNames = await refreshLabelMaps(vaultKey)
       const records = await repoRef.current.listNotes()
-      const notes = await Promise.all(
-        records.map((record) => fromWire(record.wire, vaultKey, labelNames)),
-      )
+      const { notes, failedCount } = await decryptStoredNotes(records, vaultKey, labelNames)
       dispatch({ type: 'replace', notes })
       hydrated.current = true
-      if (records.length === 0 && !navigator.onLine) {
+      if (failedCount > 0) {
+        setLoadError(t('notes.offline.corruptRecords', { count: failedCount }))
+      } else if (records.length === 0 && !navigator.onLine) {
         setLoadError(t('notes.offline.coldStart'))
       }
     } catch (reason) {
@@ -205,12 +224,18 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }, [refreshLabelMaps, t, vaultKey])
 
   const persistLocalWrite = useCallback(
-    async (noteId: string, write: EncryptedNoteWrite, draft: Note) => {
+    async (
+      noteId: string,
+      write: EncryptedNoteWrite,
+      draft: Note,
+      baselineRevision?: CreateNoteRevisionRequest | null,
+    ) => {
       if (!vaultKey) throw new Error(t('errors.vaultLocked'))
       const previous = await repoRef.current.getNote(noteId)
       const wire = wireFromWrite(write, previous?.wire, noteId)
       await repoRef.current.upsertLocalNote(wire, write, {
         neverSynced: previous?.neverSynced ?? !previous,
+        baselineRevision,
       })
       const labelMap = new Map(labelIdToName.current)
       for (let i = 0; i < draft.labelIds.length; i += 1) {
@@ -248,10 +273,13 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         try {
           const labelNames = await refreshLabelMaps(vaultKey)
           const records = await repoRef.current.listNotes()
-          const notes = await Promise.all(
-            records.map((record) => fromWire(record.wire, vaultKey, labelNames)),
-          )
+          const { notes, failedCount } = await decryptStoredNotes(records, vaultKey, labelNames)
           dispatch({ type: 'replace', notes })
+          setLoadError(
+            failedCount > 0
+              ? t('notes.offline.corruptRecords', { count: failedCount })
+              : '',
+          )
         } catch {
           // Keep current UI if refresh fails.
         }
@@ -269,7 +297,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       window.removeEventListener('online', refreshFromRepo)
       engineRef.current = null
     }
-  }, [refreshLabelMaps, vaultKey])
+  }, [refreshLabelMaps, t, vaultKey])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -819,31 +847,33 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       </main>
 
       {selectedNote && (
-        <NoteEditor
-          note={selectedNote}
-          knownLabels={knownLabels}
-          cancelIfEmpty={pendingNewNoteId === selectedNote.id}
-          startInEditMode={pendingNewNoteId === selectedNote.id}
-          online={online}
-          persistLocal={persistLocalWrite}
-          ensureLabelIds={async (names) => {
-            if (!vaultKey) throw new Error(t('errors.vaultLocked'))
-            if (!online) throw new Error(t('notes.offline.requiresConnection'))
-            const ids: string[] = []
-            for (const name of names) {
-              ids.push(await resolveLabelId(name, vaultKey))
-            }
-            return ids
-          }}
-          onClose={() => {
-            setSelectedId(null)
-            setPendingNewNoteId(null)
-          }}
-          onOptimistic={replaceNote}
-          onCanonical={replaceNote}
-          onDelete={deleteNote}
-          onDiscard={discardNote}
-        />
+        <Suspense fallback={null}>
+          <NoteEditor
+            note={selectedNote}
+            knownLabels={knownLabels}
+            cancelIfEmpty={pendingNewNoteId === selectedNote.id}
+            startInEditMode={pendingNewNoteId === selectedNote.id}
+            online={online}
+            persistLocal={persistLocalWrite}
+            ensureLabelIds={async (names) => {
+              if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+              if (!online) throw new Error(t('notes.offline.requiresConnection'))
+              const ids: string[] = []
+              for (const name of names) {
+                ids.push(await resolveLabelId(name, vaultKey))
+              }
+              return ids
+            }}
+            onClose={() => {
+              setSelectedId(null)
+              setPendingNewNoteId(null)
+            }}
+            onOptimistic={replaceNote}
+            onCanonical={replaceNote}
+            onDelete={deleteNote}
+            onDiscard={discardNote}
+          />
+        </Suspense>
       )}
       {importOpen && online && (
         <KeepImportDialog

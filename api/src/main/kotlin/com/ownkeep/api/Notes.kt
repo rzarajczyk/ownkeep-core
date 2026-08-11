@@ -337,9 +337,28 @@ class NoteService(
         val cursorId = afterId ?: UUID(0, 0)
         val rows = noteRepository.findSyncPage(userId, cursorTime, cursorId, archived, PageRequest.of(0, limit + 1))
         val page = rows.take(limit)
+        val activeNotes = page.filter { it.deletedAt == null }
+        val activeIds = activeNotes.map { it.id }
+        val attachmentsByNote = if (activeIds.isEmpty()) {
+            emptyMap()
+        } else {
+            attachmentRepository.findAllActiveByNoteIdIn(activeIds).groupBy { it.noteId }
+        }
+        val labelIdsByNote = if (activeIds.isEmpty()) {
+            emptyMap()
+        } else {
+            noteLabelRepository.findAllByNoteIdIn(activeIds)
+                .groupBy({ it.noteId }, { it.labelId })
+        }
         val last = page.lastOrNull()
         return NotesSyncResponse(
-            items = page.filter { it.deletedAt == null }.map(::toResponse),
+            items = activeNotes.map { note ->
+                toResponse(
+                    note,
+                    attachmentsByNote[note.id].orEmpty(),
+                    labelIdsByNote[note.id].orEmpty(),
+                )
+            },
             deletedIds = page.filter { it.deletedAt != null }.map { it.id },
             nextUpdatedAfter = last?.updatedAt ?: cursorTime,
             nextAfterId = last?.id ?: cursorId,
@@ -425,7 +444,17 @@ class NoteService(
     }
 
     fun toResponse(note: NoteEntity): NoteResponse {
-        val attachments = attachmentRepository.findAllByNoteIdAndDeletedAtIsNullOrderByCreatedAtAscIdAsc(note.id).map {
+        val attachments = attachmentRepository.findAllByNoteIdAndDeletedAtIsNullOrderByCreatedAtAscIdAsc(note.id)
+        val labelIds = noteLabelRepository.findLabelIdsByNoteId(note.id)
+        return toResponse(note, attachments, labelIds)
+    }
+
+    private fun toResponse(
+        note: NoteEntity,
+        attachments: List<AttachmentEntity>,
+        labelIds: List<UUID>,
+    ): NoteResponse {
+        val attachmentResponses = attachments.map {
             AttachmentResponse(
                 id = it.id,
                 metaCiphertext = CryptoSupport.encode(it.metaCiphertext),
@@ -442,8 +471,8 @@ class NoteService(
             pinned = note.pinned,
             wrappedNoteKey = CryptoSupport.encode(note.wrappedNoteKey),
             ciphertext = CryptoSupport.encode(note.ciphertext),
-            labelIds = noteLabelRepository.findLabelIdsByNoteId(note.id),
-            attachments = attachments,
+            labelIds = labelIds,
+            attachments = attachmentResponses,
             createdAt = note.createdAt,
             updatedAt = note.updatedAt,
             clientUpdatedAt = note.clientUpdatedAt,

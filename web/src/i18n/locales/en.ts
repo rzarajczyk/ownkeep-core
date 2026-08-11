@@ -150,6 +150,7 @@ export default {
       requiresConnection: 'This action requires a connection.',
       attachmentsRequireConnection: 'Attachments require a connection.',
       coldStart: 'Connect once to download your notes before working offline.',
+      corruptRecords: 'Encrypted notes that could not be opened: {{count}}. Your other notes are still available.',
     },
     loading: 'Gathering your notes…',
     empty: {

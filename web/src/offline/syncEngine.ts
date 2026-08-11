@@ -135,6 +135,15 @@ export class SyncEngine {
     const stored = await this.repo.getNote(op.noteId)
     const payload = op.payload
     try {
+      if (op.baselineRevision && !stored?.neverSynced) {
+        try {
+          await api.createNoteRevision(op.noteId, op.baselineRevision)
+        } catch (error) {
+          // A remote write may have advanced the note before this device reconnected.
+          // The conflict protocol below preserves both resulting snapshots instead.
+          if (!(error instanceof ApiError && error.code === 'version_conflict')) throw error
+        }
+      }
       let wire: EncryptedNoteWire
       if (stored?.neverSynced) {
         wire = await api.createNote(payload)
@@ -186,7 +195,8 @@ export class SyncEngine {
       remoteRevisionId,
     )
     const result = await api.conflictResolve(op.noteId, {
-      version: remote.version,
+      // Keep the rejected version so the server executes LWW + revision capture.
+      version: payload.version,
       localRevisionId,
       remoteRevisionId,
       type: payload.type,

@@ -152,6 +152,7 @@ export default {
       requiresConnection: 'Ta czynność wymaga połączenia z siecią.',
       attachmentsRequireConnection: 'Załączniki wymagają połączenia z siecią.',
       coldStart: 'Połącz się raz, aby pobrać notatki przed pracą offline.',
+      corruptRecords: 'Nie udało się otworzyć zaszyfrowanych notatek: {{count}}. Pozostałe notatki są nadal dostępne.',
     },
     loading: 'Wczytywanie Twoich notatek…',
     empty: {

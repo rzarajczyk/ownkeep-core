@@ -107,6 +107,7 @@ import { Tooltip } from './Tooltip'
 import type {
   Attachment,
   ChecklistItem,
+  CreateNoteRevisionRequest,
   EncryptedNoteWrite,
   Note,
   NoteRevisionDetail,
@@ -124,7 +125,12 @@ interface NoteEditorProps {
   cancelIfEmpty?: boolean
   startInEditMode?: boolean
   online?: boolean
-  persistLocal?: (noteId: string, write: EncryptedNoteWrite, draft: Note) => Promise<Note>
+  persistLocal?: (
+    noteId: string,
+    write: EncryptedNoteWrite,
+    draft: Note,
+    baselineRevision?: CreateNoteRevisionRequest | null,
+  ) => Promise<Note>
   ensureLabelIds: (names: string[]) => Promise<string[]>
   onClose: () => void
   onOptimistic: (note: Note) => void
@@ -470,25 +476,19 @@ export function NoteEditor({
     return () => dialog.close()
   }, [])
 
-  useEffect(() => {
-    if (skipBaselineRef.current || !vaultKey) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const noteKey = getCachedNoteKey(note.id)
-        if (!noteKey) return
-        const envelope = await buildEncryptedRevision(note, vaultKey, noteKey)
-        if (!cancelled) baselineEnvelopeRef.current = envelope
-      } catch {
-        // Baseline encryption can retry on first mutation if this fails.
-      }
-    })()
-    return () => {
-      cancelled = true
+  const prepareBaseline = useCallback(async (): Promise<CreateNoteRevisionRequest | null> => {
+    if (skipBaselineRef.current || baselineDoneRef.current) return null
+    if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+    let envelope = baselineEnvelopeRef.current
+    if (!envelope) {
+      const opening = openingNoteRef.current
+      const noteKey = getCachedNoteKey(opening.id)
+      if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
+      envelope = await buildEncryptedRevision(opening, vaultKey, noteKey)
+      baselineEnvelopeRef.current = envelope
     }
-    // Capture the opening snapshot once for this editor mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.id, vaultKey])
+    return envelope
+  }, [t, vaultKey])
 
   const ensureBaseline = useCallback(async () => {
     if (!online) return
@@ -498,15 +498,8 @@ export function NoteEditor({
       return
     }
     baselinePromiseRef.current = (async () => {
-      if (!vaultKey) throw new Error(t('errors.vaultLocked'))
-      let envelope = baselineEnvelopeRef.current
-      if (!envelope) {
-        const opening = openingNoteRef.current
-        const noteKey = getCachedNoteKey(opening.id)
-        if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
-        envelope = await buildEncryptedRevision(opening, vaultKey, noteKey)
-        baselineEnvelopeRef.current = envelope
-      }
+      const envelope = await prepareBaseline()
+      if (!envelope) return
       await api.createNoteRevision(openingNoteRef.current.id, envelope)
       baselineDoneRef.current = true
     })()
@@ -515,7 +508,7 @@ export function NoteEditor({
     } finally {
       baselinePromiseRef.current = null
     }
-  }, [online, t, vaultKey])
+  }, [online, prepareBaseline])
 
   useEffect(() => {
     if (
@@ -721,16 +714,12 @@ export function NoteEditor({
       )
       if (persistLocal) {
         // Persist locally first so flaky networks cannot block durability.
+        const baselineRevision = await prepareBaseline()
         const canonical = await persistLocal(withLabels.id, wire, {
           ...withLabels,
           clientUpdatedAt,
           clientMutationId,
-        })
-        if (online) {
-          void ensureBaseline().catch(() => {
-            // Baseline revisions are best-effort and retried on later online flushes.
-          })
-        }
+        }, baselineRevision)
         if (thisRequest === requestId.current) {
           savedRevision.current = capturedRevision
           onCanonical(canonical)
@@ -821,7 +810,7 @@ export function NoteEditor({
         void flush()
       }
     }
-  }, [ensureBaseline, ensureLabelIds, onCanonical, onOptimistic, online, persistLocal, t, vaultKey])
+  }, [ensureBaseline, ensureLabelIds, onCanonical, onOptimistic, online, persistLocal, prepareBaseline, t, vaultKey])
 
   const flushRef = useRef(flush)
   flushRef.current = flush

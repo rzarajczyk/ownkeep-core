@@ -65,6 +65,28 @@ describe('renderMarkdown', () => {
     expect(html).not.toMatch(/see <a[^>]*>ref<\/a>/)
   })
 
+  it('blocks remote images to avoid leaking note views to third parties', () => {
+    const html = renderMarkdown('![tracking pixel](https://example.com/pixel.png)')
+    expect(html).toContain('<img')
+    expect(html).not.toContain('src=')
+    expect(html).not.toContain('example.com')
+  })
+
+  it('rewrites matching image filenames to encrypted attachment URLs', () => {
+    const html = renderMarkdown('![photo](photo.jpg)', [
+      {
+        id: 'attachment-1',
+        kind: 'IMAGE',
+        originalFilename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 123,
+        createdAt: '2026-01-01T00:00:00Z',
+        url: '/attachments/attachment-1',
+      },
+    ])
+    expect(html).toContain('src="/attachments/attachment-1"')
+  })
+
   it('renders inline sub, sup, and underline in checklist preview', () => {
     const html = renderMarkdownInline('H~2~O <u>x</u> y^2^')
     expect(html).toContain('<sub>2</sub>')

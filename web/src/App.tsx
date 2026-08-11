@@ -1,9 +1,8 @@
 import { LoaderCircle } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
 import { api, ApiError } from './api'
-import { AppShell } from './AppShell'
 import { EmailVerifyPage } from './EmailVerifyPage'
 import { bootstrapI18n } from './i18n'
 import { Login } from './Login'
@@ -13,6 +12,10 @@ import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
 import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './vault/VaultGate'
 
 bootstrapI18n()
+
+const AppShell = lazy(() =>
+  import('./AppShell').then((module) => ({ default: module.AppShell })),
+)
 
 const TOKEN_KEY = 'ownkeep.auth'
 
@@ -57,6 +60,7 @@ function AuthenticatedApp({
   onSessionEnded: () => void
   onUserUpdated: (user: User) => void
 }) {
+  const { t } = useTranslation()
   const { isUnlocked, lock } = useVault()
 
   async function refreshUserIfOnline() {
@@ -96,17 +100,26 @@ function AuthenticatedApp({
   }
 
   return (
-    <AppShell
-      user={session.user}
-      onLogout={async () => {
-        lock()
-        await onLogout()
-      }}
-      onSessionEnded={() => {
-        lock()
-        onSessionEnded()
-      }}
-    />
+    <Suspense
+      fallback={
+        <div className="boot-screen" role="status">
+          <LoaderCircle className="spin" aria-hidden="true" />
+          <span>{t('common.loading')}</span>
+        </div>
+      }
+    >
+      <AppShell
+        user={session.user}
+        onLogout={async () => {
+          lock()
+          await onLogout()
+        }}
+        onSessionEnded={() => {
+          lock()
+          onSessionEnded()
+        }}
+      />
+    </Suspense>
   )
 }
 

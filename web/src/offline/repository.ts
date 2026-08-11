@@ -1,4 +1,5 @@
 import type {
+  CreateNoteRevisionRequest,
   EncryptedLabelWire,
   EncryptedNoteWire,
   EncryptedNoteWrite,
@@ -157,7 +158,10 @@ export class LocalRepository {
   async upsertLocalNote(
     wire: EncryptedNoteWire,
     write: EncryptedNoteWrite,
-    options?: { neverSynced?: boolean },
+    options?: {
+      neverSynced?: boolean
+      baselineRevision?: CreateNoteRevisionRequest | null
+    },
   ): Promise<void> {
     const db = await this.open()
     const tx = db.transaction(['notes', 'outbox'], 'readwrite')
@@ -176,6 +180,8 @@ export class LocalRepository {
       outbox.put({
         ...existingOp,
         payload: { ...existingOp.payload, ...write, id: wire.id },
+        generation: (existingOp.generation ?? 1) + 1,
+        baselineRevision: existingOp.baselineRevision ?? options?.baselineRevision ?? undefined,
         updatedAt: now,
       } satisfies OutboxUpsertOp)
     } else {
@@ -184,6 +190,8 @@ export class LocalRepository {
         type: 'upsertNote',
         noteId: wire.id,
         payload: { ...write, id: wire.id },
+        generation: 1,
+        baselineRevision: options?.baselineRevision ?? undefined,
         createdAt: now,
         updatedAt: now,
       } satisfies OutboxUpsertOp)
@@ -201,7 +209,17 @@ export class LocalRepository {
     const tx = db.transaction(['notes', 'outbox'], 'readwrite')
     const notes = tx.objectStore('notes')
     const outbox = tx.objectStore('outbox')
-    outbox.delete(op.id)
+    const current = await req<OutboxUpsertOp | undefined>(outbox.get(op.id))
+    const acknowledgedGeneration = op.generation ?? 1
+    const currentGeneration = current?.generation ?? 1
+    if (current && currentGeneration === acknowledgedGeneration) {
+      outbox.delete(op.id)
+    } else if (current) {
+      outbox.put({
+        ...current,
+        payload: { ...current.payload, version: wire.version },
+      } satisfies OutboxUpsertOp)
+    }
     const remaining = (await req<OutboxOp[]>(outbox.getAll())).filter(
       (entry): entry is OutboxUpsertOp =>
         entry.type === 'upsertNote' && entry.noteId === op.noteId,
