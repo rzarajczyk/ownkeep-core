@@ -2,13 +2,22 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthSession, User, VaultInfo } from '../types'
-import { RestoredUserRecovery, VaultSetup } from './VaultGate'
+import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './VaultGate'
 
-const { completeRecovery, rewrapVaultForPassword, setupVault, unlockWithRecovery } = vi.hoisted(() => ({
+const {
+  completeRecovery,
+  rewrapVaultForPassword,
+  setupVault,
+  unlockWithRecovery,
+  unlockWithPassword,
+  installPasswordWrap,
+} = vi.hoisted(() => ({
   completeRecovery: vi.fn(),
   rewrapVaultForPassword: vi.fn(),
   setupVault: vi.fn(),
   unlockWithRecovery: vi.fn(),
+  unlockWithPassword: vi.fn(),
+  installPasswordWrap: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -20,7 +29,12 @@ vi.mock('../crypto/vault', () => ({
 }))
 
 vi.mock('./VaultContext', () => ({
-  useVault: () => ({ setupVault, unlockWithRecovery }),
+  useVault: () => ({
+    setupVault,
+    unlockWithRecovery,
+    unlockWithPassword,
+    installPasswordWrap,
+  }),
 }))
 
 const vault: VaultInfo = {
@@ -141,5 +155,78 @@ describe('RestoredUserRecovery', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match')
     expect(unlockWithRecovery).not.toHaveBeenCalled()
     expect(completeRecovery).not.toHaveBeenCalled()
+  })
+})
+
+const unlockUser: User = {
+  id: 3,
+  email: 'unlock@example.com',
+  role: 'USER',
+  vault: {
+    ...vault,
+    wrappedVaultKey: 'password-wrap',
+    needsRecoveryUnlock: false,
+  },
+}
+
+describe('VaultUnlock', () => {
+  beforeEach(() => {
+    unlockWithPassword.mockReset()
+    unlockWithPassword.mockResolvedValue(undefined)
+    installPasswordWrap.mockReset()
+  })
+
+  it('renders the unlock form when there is no password hint', async () => {
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'Unlock your workspace' }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Password')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unlock' })).toBeInTheDocument()
+  })
+
+  it('unlocks with password and calls onReady', async () => {
+    const user = userEvent.setup()
+    const onReady = vi.fn()
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={onReady}
+      />,
+    )
+
+    await user.type(screen.getByLabelText('Password'), 'correct-password')
+    await user.click(screen.getByRole('button', { name: 'Unlock' }))
+
+    await waitFor(() => expect(onReady).toHaveBeenCalledOnce())
+    expect(unlockWithPassword).toHaveBeenCalledWith('correct-password', unlockUser.vault)
+  })
+
+  it('shows an error when password unlock fails', async () => {
+    const user = userEvent.setup()
+    unlockWithPassword.mockRejectedValue(new Error('bad password'))
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={vi.fn()}
+      />,
+    )
+
+    await user.type(screen.getByLabelText('Password'), 'wrong-password')
+    await user.click(screen.getByRole('button', { name: 'Unlock' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect password')
   })
 })

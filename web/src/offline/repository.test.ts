@@ -123,3 +123,64 @@ describe('LocalRepository outbox acknowledgement', () => {
     expect(stored?.wire.version).toBe(8)
   })
 })
+
+describe('LocalRepository sync helpers', () => {
+  it('marks neverSynced and coalesces outbox to one op', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    await repo.upsertLocalNote(wire('cipher-a', 'mutation-a'), write('cipher-a', 'mutation-a'), {
+      neverSynced: true,
+    })
+    expect((await repo.getNote(NOTE_ID))?.neverSynced).toBe(true)
+
+    await repo.upsertLocalNote(wire('cipher-b', 'mutation-b'), write('cipher-b', 'mutation-b'))
+    const ops = await repo.listOutbox()
+    expect(ops).toHaveLength(1)
+    expect(ops[0]?.type).toBe('upsertNote')
+    if (ops[0]?.type === 'upsertNote') {
+      expect(ops[0].payload.ciphertext).toBe('cipher-b')
+      expect(ops[0].generation).toBe(2)
+    }
+    expect((await repo.getNote(NOTE_ID))?.neverSynced).toBe(true)
+  })
+
+  it('round-trips cached vault info', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const vault = {
+      kdfSalt: 'salt',
+      kdfParams: { alg: 'argon2id' as const, m: 65536, t: 3, p: 1 },
+      wrappedVaultKey: 'wrap',
+      wrappedVaultKeyRecovery: 'recovery-wrap',
+      hasRecoveryKey: true,
+      initialized: true,
+      needsRecoveryUnlock: false,
+    }
+    await repo.cacheVault(vault)
+    expect(await repo.getCachedVault()).toEqual(vault)
+  })
+
+  it('putSyncedNotes inserts wires and deletes tombstones', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const keepId = '22222222-2222-4222-8222-222222222222'
+    const dropId = '33333333-3333-4333-8333-333333333333'
+    await repo.putSyncedNotes(
+      [
+        { ...wire('keep', 'keep-m'), id: keepId },
+        { ...wire('drop', 'drop-m'), id: dropId },
+      ],
+      [],
+    )
+    await repo.putSyncedNotes([{ ...wire('keep-2', 'keep-m-2', 2), id: keepId }], [dropId])
+
+    const notes = await repo.listNotes()
+    expect(notes.map((note) => note.id).sort()).toEqual([keepId])
+    expect(notes[0]?.wire.ciphertext).toBe('keep-2')
+    expect(notes[0]?.neverSynced).toBe(false)
+  })
+
+  it('pendingNoteIds includes outbox notes', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    expect(await repo.pendingNoteIds()).toEqual(new Set())
+    await repo.upsertLocalNote(wire('cipher-a', 'mutation-a'), write('cipher-a', 'mutation-a'))
+    expect(await repo.pendingNoteIds()).toEqual(new Set([NOTE_ID]))
+  })
+})

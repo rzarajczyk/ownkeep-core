@@ -62,4 +62,15 @@ class CoreUnitTests {
         assertThatThrownBy { CryptoSupport.decodeRequired(short, "wrappedVaultKey", minBytes = 28) }
             .isInstanceOf(ApiException::class.java)
     }
+
+    @Test
+    fun `localWins prefers newer clientUpdatedAt then lexicographic mutation id`() {
+        val earlier = Instant.parse("2026-01-01T00:00:00Z")
+        val later = Instant.parse("2026-01-01T00:00:01Z")
+        assertThat(localWins(later, "a", earlier, "z")).isTrue()
+        assertThat(localWins(earlier, "z", later, "a")).isFalse()
+        assertThat(localWins(earlier, "b", earlier, "a")).isTrue()
+        assertThat(localWins(earlier, "a", earlier, "b")).isFalse()
+        assertThat(localWins(earlier, "a", earlier, null)).isTrue()
+    }
 }

@@ -6,8 +6,10 @@ import type { OutboxUpsertOp } from './types'
 
 const api = vi.hoisted(() => ({
   note: vi.fn(),
+  notes: vi.fn(),
   conflictResolve: vi.fn(),
   createNoteRevision: vi.fn(),
+  createNote: vi.fn(),
   updateNote: vi.fn(),
 }))
 
@@ -288,5 +290,131 @@ describe('SyncEngine conflict resolution', () => {
       noteId,
       expect.objectContaining({ version: 3, ciphertext: 'cipher-b' }),
     )
+  })
+})
+
+describe('SyncEngine pull', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('applies synced wires, removes tombstones, skips pending ids, and advances cursor', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const applyId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const pendingId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const deleteId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+    await repo.putSyncedNotes(
+      [
+        {
+          ...remoteWire(1),
+          id: deleteId,
+          ciphertext: 'to-delete',
+        },
+      ],
+      [],
+    )
+    await repo.upsertLocalNote(
+      {
+        ...remoteWire(2),
+        id: pendingId,
+        ciphertext: 'local-pending',
+        clientMutationId: 'pending-mutation',
+      },
+      {
+        id: pendingId,
+        type: 'TEXT',
+        wrappedNoteKey: 'pending-wrap',
+        ciphertext: 'local-pending',
+        version: 2,
+        clientUpdatedAt: '2026-01-01T00:02:00.000Z',
+        clientMutationId: 'pending-mutation',
+      },
+    )
+
+    const applied = {
+      ...remoteWire(5),
+      id: applyId,
+      ciphertext: 'synced-cipher',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      clientUpdatedAt: '2026-01-02T00:00:00.000Z',
+      clientMutationId: 'synced-mutation',
+    }
+    const pendingRemote = {
+      ...remoteWire(9),
+      id: pendingId,
+      ciphertext: 'should-not-overwrite',
+      clientMutationId: 'server-pending',
+    }
+
+    api.notes.mockResolvedValue({
+      items: [applied, pendingRemote],
+      deletedIds: [deleteId],
+      nextUpdatedAfter: '2026-01-02T00:00:00.000Z',
+      nextAfterId: applyId,
+      hasMore: false,
+    })
+
+    const engine = new SyncEngine(repo)
+    await (engine as unknown as { pull(): Promise<void> }).pull()
+
+    const notes = await repo.listNotes()
+    const byId = new Map(notes.map((note) => [note.id, note]))
+    expect(byId.get(applyId)?.wire.ciphertext).toBe('synced-cipher')
+    expect(byId.get(pendingId)?.wire.ciphertext).toBe('local-pending')
+    expect(byId.has(deleteId)).toBe(false)
+    expect(await repo.getCursor()).toEqual({
+      updatedAfter: '2026-01-02T00:00:00.000Z',
+      afterId: applyId,
+    })
+    expect(api.notes).toHaveBeenCalledWith({
+      limit: 100,
+      updatedAfter: undefined,
+      afterId: undefined,
+    })
+  })
+
+  it('uses createNote for neverSynced notes on push', async () => {
+    const noteId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const created = {
+      ...remoteWire(1),
+      id: noteId,
+      ciphertext: 'created-cipher',
+      clientMutationId: 'create-mutation',
+    }
+    api.createNote.mockResolvedValue(created)
+
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    await repo.upsertLocalNote(
+      {
+        ...remoteWire(0),
+        id: noteId,
+        ciphertext: 'local-cipher',
+        version: 0,
+        clientMutationId: 'create-mutation',
+      },
+      {
+        id: noteId,
+        type: 'TEXT',
+        wrappedNoteKey: 'local-wrap',
+        ciphertext: 'local-cipher',
+        version: 0,
+        clientUpdatedAt: '2026-01-01T00:02:00.000Z',
+        clientMutationId: 'create-mutation',
+      },
+      { neverSynced: true },
+    )
+    const [op] = await repo.listOutbox()
+    const engine = new SyncEngine(repo)
+    await (
+      engine as unknown as { pushUpsert(operation: OutboxUpsertOp): Promise<void> }
+    ).pushUpsert(op as OutboxUpsertOp)
+
+    expect(api.createNote).toHaveBeenCalledWith(
+      expect.objectContaining({ ciphertext: 'local-cipher' }),
+    )
+    expect(api.updateNote).not.toHaveBeenCalled()
+    expect(await repo.listOutbox()).toEqual([])
+    expect((await repo.getNote(noteId))?.neverSynced).toBe(false)
   })
 })

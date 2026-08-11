@@ -63,6 +63,15 @@ class OwnKeepIntegrationTest {
     @Autowired
     lateinit var userManagementService: UserManagementService
 
+    @Autowired
+    lateinit var emailVerificationService: EmailVerificationService
+
+    @Autowired
+    lateinit var properties: OwnKeepProperties
+
+    @Autowired
+    lateinit var transactionManager: org.springframework.transaction.PlatformTransactionManager
+
     @org.junit.jupiter.api.BeforeEach
     fun ensureBobUser() {
         val existing = userRepository.findByEmail("bob@example.com")
@@ -770,6 +779,388 @@ class OwnKeepIntegrationTest {
 
         mockMvc.perform(get("/attachments/$attachmentId").header("Authorization", "Bearer $aliceToken"))
             .andExpect(status().isOk)
+    }
+
+    @Test
+    fun `conflict-resolve keeps matching version as local winner without revisions`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        initializeVault(aliceToken, 61)
+        val noteId = createEncryptedNote(aliceToken, 61)
+
+        val noteJson = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        val version = noteJson.get("version").asLong()
+        val clientUpdatedAt = noteJson.get("clientUpdatedAt").asText()
+
+        val newCipher = b64(ByteArray(64) { 62 })
+        val newWrap = b64(ByteArray(48) { 63 })
+        val localSnap = b64(ByteArray(48) { 64 })
+        val remoteSnap = b64(ByteArray(48) { 65 })
+        val resolveResult = mockMvc.perform(
+            post("/notes/$noteId/conflict-resolve")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "version": $version,
+                      "localRevisionId": "${UUID.randomUUID()}",
+                      "remoteRevisionId": "${UUID.randomUUID()}",
+                      "type": "TEXT",
+                      "backgroundColor": "default",
+                      "archived": false,
+                      "pinned": false,
+                      "wrappedNoteKey": "$newWrap",
+                      "ciphertext": "$newCipher",
+                      "localSnapshotCiphertext": "$localSnap",
+                      "remoteSnapshotCiphertext": "$remoteSnap",
+                      "labelIds": [],
+                      "clientUpdatedAt": "$clientUpdatedAt",
+                      "clientMutationId": "match-version-mut"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.winner").value("local"))
+            .andExpect(jsonPath("$.note.ciphertext").value(newCipher))
+            .andExpect(jsonPath("$.localRevision").doesNotExist())
+            .andExpect(jsonPath("$.remoteRevision").doesNotExist())
+    }
+
+    @Test
+    fun `conflict-resolve records revisions and picks LWW winner when versions differ`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        initializeVault(aliceToken, 71)
+
+        val localWinsNoteId = createEncryptedNote(aliceToken, 71)
+        val localWinsNote = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$localWinsNoteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        val staleVersionLocal = localWinsNote.get("version").asLong()
+        val remoteCipherLocalCase = b64(ByteArray(64) { 72 })
+        val remoteWrapLocalCase = b64(ByteArray(48) { 73 })
+        val t1 = "2026-06-01T10:00:00Z"
+        val t2 = "2026-06-01T11:00:00Z"
+        mockMvc.perform(
+            patch("/notes/$localWinsNoteId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "version": $staleVersionLocal,
+                      "wrappedNoteKey": "$remoteWrapLocalCase",
+                      "ciphertext": "$remoteCipherLocalCase",
+                      "clientUpdatedAt": "$t1",
+                      "clientMutationId": "remote-mut"
+                    }
+                    """.trimIndent(),
+                ),
+        ).andExpect(status().isOk)
+
+        val localCipher = b64(ByteArray(64) { 74 })
+        val localWrap = b64(ByteArray(48) { 75 })
+        val localSnap = b64(ByteArray(48) { 76 })
+        val remoteSnap = b64(ByteArray(48) { 77 })
+        mockMvc.perform(
+            post("/notes/$localWinsNoteId/conflict-resolve")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "version": $staleVersionLocal,
+                      "localRevisionId": "${UUID.randomUUID()}",
+                      "remoteRevisionId": "${UUID.randomUUID()}",
+                      "type": "TEXT",
+                      "backgroundColor": "default",
+                      "archived": false,
+                      "pinned": false,
+                      "wrappedNoteKey": "$localWrap",
+                      "ciphertext": "$localCipher",
+                      "localSnapshotCiphertext": "$localSnap",
+                      "remoteSnapshotCiphertext": "$remoteSnap",
+                      "labelIds": [],
+                      "clientUpdatedAt": "$t2",
+                      "clientMutationId": "local-mut"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.winner").value("local"))
+            .andExpect(jsonPath("$.note.ciphertext").value(localCipher))
+            .andExpect(jsonPath("$.localRevision.origin").value("CONFLICT_LOCAL"))
+            .andExpect(jsonPath("$.remoteRevision.origin").value("CONFLICT_REMOTE"))
+
+        val remoteWinsNoteId = createEncryptedNote(aliceToken, 78)
+        val remoteWinsNote = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$remoteWinsNoteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        val staleVersionRemote = remoteWinsNote.get("version").asLong()
+        val remoteCipherRemoteCase = b64(ByteArray(64) { 79 })
+        val remoteWrapRemoteCase = b64(ByteArray(48) { 80 })
+        mockMvc.perform(
+            patch("/notes/$remoteWinsNoteId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "version": $staleVersionRemote,
+                      "wrappedNoteKey": "$remoteWrapRemoteCase",
+                      "ciphertext": "$remoteCipherRemoteCase",
+                      "clientUpdatedAt": "$t1",
+                      "clientMutationId": "remote-mut"
+                    }
+                    """.trimIndent(),
+                ),
+        ).andExpect(status().isOk)
+
+        val olderLocalCipher = b64(ByteArray(64) { 81 })
+        mockMvc.perform(
+            post("/notes/$remoteWinsNoteId/conflict-resolve")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "version": $staleVersionRemote,
+                      "localRevisionId": "${UUID.randomUUID()}",
+                      "remoteRevisionId": "${UUID.randomUUID()}",
+                      "type": "TEXT",
+                      "backgroundColor": "default",
+                      "archived": false,
+                      "pinned": false,
+                      "wrappedNoteKey": "${b64(ByteArray(48) { 82 })}",
+                      "ciphertext": "$olderLocalCipher",
+                      "localSnapshotCiphertext": "${b64(ByteArray(48) { 83 })}",
+                      "remoteSnapshotCiphertext": "${b64(ByteArray(48) { 84 })}",
+                      "labelIds": [],
+                      "clientUpdatedAt": "2026-06-01T09:00:00Z",
+                      "clientMutationId": "older-local-mut"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.winner").value("remote"))
+            .andExpect(jsonPath("$.note.ciphertext").value(remoteCipherRemoteCase))
+            .andExpect(jsonPath("$.localRevision.origin").value("CONFLICT_LOCAL"))
+            .andExpect(jsonPath("$.remoteRevision.origin").value("CONFLICT_REMOTE"))
+    }
+
+    @Test
+    fun `note patch rejects stale version`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        initializeVault(aliceToken, 91)
+        val noteId = createEncryptedNote(aliceToken, 91)
+        val version = objectMapper.readTree(
+            mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        ).get("version").asLong()
+
+        mockMvc.perform(
+            patch("/notes/$noteId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"version":${version + 1},"archived":true}"""),
+        )
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.code").value("version_conflict"))
+    }
+
+    @Test
+    fun `labels list update and delete cascade note membership`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        initializeVault(aliceToken, 101)
+
+        val labelCipher = b64(ByteArray(48) { 102 })
+        val labelResult = mockMvc.perform(
+            post("/labels")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"ciphertext":"$labelCipher"}"""),
+        )
+            .andExpect(status().isOk)
+            .andReturn()
+        val labelId = objectMapper.readTree(labelResult.response.contentAsString).get("id").asText()
+
+        val listed = objectMapper.readTree(
+            mockMvc.perform(get("/labels").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        assertThat(listed.map { it.get("id").asText() }).contains(labelId)
+        assertThat(listed.first { it.get("id").asText() == labelId }.get("ciphertext").asText()).isEqualTo(labelCipher)
+
+        val updatedCipher = b64(ByteArray(48) { 103 })
+        mockMvc.perform(
+            patch("/labels/$labelId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"ciphertext":"$updatedCipher"}"""),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.ciphertext").value(updatedCipher))
+
+        val noteId = UUID.randomUUID()
+        mockMvc.perform(
+            post("/notes")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "id": "$noteId",
+                      "type": "TEXT",
+                      "backgroundColor": "default",
+                      "pinned": false,
+                      "wrappedNoteKey": "${b64(ByteArray(48) { 104 })}",
+                      "ciphertext": "${b64(ByteArray(64) { 104 })}",
+                      "labelIds": ["$labelId"]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.labelIds[0]").value(labelId))
+
+        mockMvc.perform(delete("/labels/$labelId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isNoContent)
+
+        mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.labelIds").isEmpty)
+
+        val labels = objectMapper.readTree(
+            mockMvc.perform(get("/labels").header("Authorization", "Bearer $aliceToken"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString,
+        )
+        assertThat(labels.map { it.get("id").asText() }).doesNotContain(labelId)
+    }
+
+    @Test
+    fun `logout revokes the session token`() {
+        val token = login("alice@example.com", "alice-password")
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $token"))
+            .andExpect(status().isOk)
+
+        mockMvc.perform(post("/auth/logout").header("Authorization", "Bearer $token"))
+            .andExpect(status().isNoContent)
+
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $token"))
+            .andExpect(status().isUnauthorized)
+    }
+
+    @Test
+    fun `email verification confirm unlocks login when required`() {
+        val adminToken = login("alice@example.com", "alice-password")
+        val suffix = UUID.randomUUID().toString().take(8)
+        val user = createUser(adminToken, "verify-$suffix@example.com")
+        val entity = userRepository.findById(user.id).orElseThrow()
+        entity.emailVerifiedAt = null
+        userRepository.save(entity)
+
+        val previousRequired = properties.emailVerificationRequired
+        properties.emailVerificationRequired = true
+        try {
+            mockMvc.perform(
+                post("/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"email":"${user.email}","password":"$TEST_USER_PASSWORD"}"""),
+            )
+                .andExpect(status().isForbidden)
+                .andExpect(jsonPath("$.code").value("email_not_verified"))
+
+            val rawToken = org.springframework.transaction.support.TransactionTemplate(transactionManager).execute {
+                emailVerificationService.createToken(user.id)
+            }!!
+
+            mockMvc.perform(
+                post("/auth/email/verify")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"token":"$rawToken"}"""),
+            ).andExpect(status().isNoContent)
+
+            mockMvc.perform(
+                post("/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"email":"${user.email}","password":"$TEST_USER_PASSWORD"}"""),
+            )
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.token").isString)
+
+            mockMvc.perform(
+                post("/auth/email/resend")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""{"email":"${user.email}"}"""),
+            )
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.message").isString)
+        } finally {
+            properties.emailVerificationRequired = previousRequired
+        }
+    }
+
+    @Test
+    fun `attachment upload rejects oversize and quota`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        initializeVault(aliceToken, 111)
+        val noteId = createEncryptedNote(aliceToken, 111)
+        val meta = b64(ByteArray(48) { 112 })
+
+        mockMvc.perform(
+            multipart("/notes/$noteId/attachments")
+                .file(MockMultipartFile("file", "big.bin", "application/octet-stream", ByteArray(1025) { 1 }))
+                .file(MockMultipartFile("metaCiphertext", null, "text/plain", meta.toByteArray()))
+                .file(MockMultipartFile("attachmentId", null, "text/plain", UUID.randomUUID().toString().toByteArray()))
+                .header("Authorization", "Bearer $aliceToken"),
+        )
+            .andExpect(status().isPayloadTooLarge)
+            .andExpect(jsonPath("$.code").value("file_too_large"))
+
+        repeat(4) { index ->
+            mockMvc.perform(
+                multipart("/notes/$noteId/attachments")
+                    .file(MockMultipartFile("file", "chunk-$index.bin", "application/octet-stream", ByteArray(900) { index.toByte() }))
+                    .file(MockMultipartFile("metaCiphertext", null, "text/plain", meta.toByteArray()))
+                    .file(MockMultipartFile("attachmentId", null, "text/plain", UUID.randomUUID().toString().toByteArray()))
+                    .header("Authorization", "Bearer $aliceToken"),
+            ).andExpect(status().isCreated)
+        }
+
+        mockMvc.perform(
+            multipart("/notes/$noteId/attachments")
+                .file(MockMultipartFile("file", "over-quota.bin", "application/octet-stream", ByteArray(900) { 9 }))
+                .file(MockMultipartFile("metaCiphertext", null, "text/plain", meta.toByteArray()))
+                .file(MockMultipartFile("attachmentId", null, "text/plain", UUID.randomUUID().toString().toByteArray()))
+                .header("Authorization", "Bearer $aliceToken"),
+        )
+            .andExpect(status().isPayloadTooLarge)
+            .andExpect(jsonPath("$.code").value("quota_exceeded"))
     }
 
     private fun login(email: String, password: String): String {
