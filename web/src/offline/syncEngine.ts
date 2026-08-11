@@ -211,7 +211,11 @@ export class SyncEngine {
       clientUpdatedAt: payload.clientUpdatedAt,
       clientMutationId: payload.clientMutationId,
     })
-    await this.repo.acknowledgeOutboxOp(op, result.note)
+    await this.repo.acknowledgeOutboxOp(op, result.note, {
+      // Remote winner must not adopt version onto a newer coalesced local edit,
+      // or the next plain update would clobber the remote without LWW.
+      rebaseNewerMutation: result.winner !== 'remote',
+    })
     this.onStoreChanged?.()
   }
 

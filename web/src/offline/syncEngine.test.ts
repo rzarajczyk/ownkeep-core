@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EncryptedNoteWire } from '../types'
-import type { LocalRepository } from './repository'
+import { LocalRepository } from './repository'
 import { SyncEngine } from './syncEngine'
 import type { OutboxUpsertOp } from './types'
 
@@ -11,12 +11,22 @@ const api = vi.hoisted(() => ({
   updateNote: vi.fn(),
 }))
 
+const ApiError = vi.hoisted(() => {
+  return class ApiError extends Error {
+    status: number
+    code?: string
+    constructor(message: string, status: number, code?: string) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+      this.code = code
+    }
+  }
+})
+
 vi.mock('../api', () => ({
   api,
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
+  ApiError,
 }))
 
 vi.mock('./conflictSnapshots', () => ({
@@ -26,7 +36,7 @@ vi.mock('./conflictSnapshots', () => ({
   }),
 }))
 
-function remoteWire(): EncryptedNoteWire {
+function remoteWire(version = 7): EncryptedNoteWire {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     type: 'TEXT',
@@ -41,11 +51,15 @@ function remoteWire(): EncryptedNoteWire {
     updatedAt: '2026-01-01T00:01:00.000Z',
     clientUpdatedAt: '2026-01-01T00:01:00.000Z',
     clientMutationId: 'remote-mutation',
-    version: 7,
+    version,
   }
 }
 
 describe('SyncEngine conflict resolution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('uploads a queued baseline before updating an existing note', async () => {
     const calls: string[] = []
     const remote = remoteWire()
@@ -136,6 +150,143 @@ describe('SyncEngine conflict resolution', () => {
       remote.id,
       expect.objectContaining({ version: 3 }),
     )
-    expect(acknowledgeOutboxOp).toHaveBeenCalledWith(op, remote)
+    expect(acknowledgeOutboxOp).toHaveBeenCalledWith(op, remote, {
+      rebaseNewerMutation: false,
+    })
+  })
+
+  it('rebases newer mutations when the local side wins a conflict', async () => {
+    const remote = remoteWire()
+    const localWinner = { ...remote, ciphertext: 'local-cipher', version: 8 }
+    api.note.mockResolvedValue(remote)
+    api.conflictResolve.mockResolvedValue({
+      note: localWinner,
+      winner: 'local',
+      localRevision: null,
+      remoteRevision: null,
+    })
+    const acknowledgeOutboxOp = vi.fn()
+    const repo = { acknowledgeOutboxOp } as unknown as LocalRepository
+    const engine = new SyncEngine(repo)
+    engine.setVaultKey(new Uint8Array(32))
+    const op: OutboxUpsertOp = {
+      id: 'operation-local-win',
+      type: 'upsertNote',
+      noteId: remote.id,
+      generation: 1,
+      payload: {
+        id: remote.id,
+        type: 'TEXT',
+        backgroundColor: '#ffffff',
+        archived: false,
+        pinned: false,
+        wrappedNoteKey: 'local-wrap',
+        ciphertext: 'local-cipher',
+        labelIds: [],
+        version: 3,
+        clientUpdatedAt: '2026-01-01T00:02:00.000Z',
+        clientMutationId: 'local-mutation',
+      },
+      createdAt: '2026-01-01T00:02:00.000Z',
+      updatedAt: '2026-01-01T00:02:00.000Z',
+    }
+
+    await (
+      engine as unknown as { resolveConflict(operation: OutboxUpsertOp): Promise<void> }
+    ).resolveConflict(op)
+
+    expect(acknowledgeOutboxOp).toHaveBeenCalledWith(op, localWinner, {
+      rebaseNewerMutation: true,
+    })
+  })
+
+  it('re-conflicts a coalesced follow-up that was preserved after a remote win', async () => {
+    const noteId = '11111111-1111-4111-8111-111111111111'
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    await repo.upsertLocalNote(
+      {
+        id: noteId,
+        type: 'TEXT',
+        backgroundColor: '#ffffff',
+        archived: false,
+        pinned: false,
+        wrappedNoteKey: 'wrap-a',
+        ciphertext: 'cipher-a',
+        labelIds: [],
+        attachments: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        clientUpdatedAt: '2026-01-01T00:00:00.000Z',
+        clientMutationId: 'mutation-a',
+        version: 3,
+      },
+      {
+        id: noteId,
+        type: 'TEXT',
+        wrappedNoteKey: 'wrap-a',
+        ciphertext: 'cipher-a',
+        version: 3,
+        clientUpdatedAt: '2026-01-01T00:00:00.000Z',
+        clientMutationId: 'mutation-a',
+      },
+    )
+    const [inFlight] = await repo.listOutbox()
+    await repo.upsertLocalNote(
+      {
+        id: noteId,
+        type: 'TEXT',
+        backgroundColor: '#ffffff',
+        archived: false,
+        pinned: false,
+        wrappedNoteKey: 'wrap-b',
+        ciphertext: 'cipher-b',
+        labelIds: [],
+        attachments: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:30.000Z',
+        clientUpdatedAt: '2026-01-01T00:00:30.000Z',
+        clientMutationId: 'mutation-b',
+        version: 3,
+      },
+      {
+        id: noteId,
+        type: 'TEXT',
+        wrappedNoteKey: 'wrap-b',
+        ciphertext: 'cipher-b',
+        version: 3,
+        clientUpdatedAt: '2026-01-01T00:00:30.000Z',
+        clientMutationId: 'mutation-b',
+      },
+    )
+
+    const remote = remoteWire(8)
+    await repo.acknowledgeOutboxOp(inFlight!, remote, { rebaseNewerMutation: false })
+    const [pending] = await repo.listOutbox()
+    expect(pending?.payload.version).toBe(3)
+    expect(pending?.payload.ciphertext).toBe('cipher-b')
+
+    api.updateNote.mockRejectedValue(new ApiError('conflict', 409, 'version_conflict'))
+    api.note.mockResolvedValue(remote)
+    api.conflictResolve.mockResolvedValue({
+      note: remote,
+      winner: 'remote',
+      localRevision: null,
+      remoteRevision: null,
+    })
+
+    const engine = new SyncEngine(repo)
+    engine.setVaultKey(new Uint8Array(32))
+    await (
+      engine as unknown as { pushUpsert(operation: OutboxUpsertOp): Promise<void> }
+    ).pushUpsert(pending!)
+
+    expect(api.updateNote).toHaveBeenCalledWith(
+      noteId,
+      expect.objectContaining({ version: 3, ciphertext: 'cipher-b' }),
+    )
+    expect(api.conflictResolve).toHaveBeenCalledWith(
+      noteId,
+      expect.objectContaining({ version: 3, ciphertext: 'cipher-b' }),
+    )
   })
 })

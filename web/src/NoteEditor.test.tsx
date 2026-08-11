@@ -324,4 +324,40 @@ describe('NoteEditor', () => {
     await waitFor(() => expect(api.createNoteRevision).toHaveBeenCalled())
     await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
+
+  it('still persists locally when baseline snapshot creation fails', async () => {
+    const { buildEncryptedRevision } = await import('./revisionSnapshots')
+    vi.mocked(buildEncryptedRevision).mockRejectedValueOnce(new Error('snapshot failed'))
+    const persistLocal = vi.fn(async (_id, _write, draft) => ({
+      ...draft,
+      version: draft.version,
+      updatedAt: '2026-01-01T00:01:00Z',
+    }))
+    const onCanonical = vi.fn()
+
+    render(
+      <NoteEditor
+        note={baseNote}
+        ensureLabelIds={async () => []}
+        persistLocal={persistLocal}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={onCanonical}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Kept locally' } })
+
+    await waitFor(() => expect(persistLocal).toHaveBeenCalled())
+    expect(persistLocal).toHaveBeenCalledWith(
+      'n1',
+      expect.anything(),
+      expect.objectContaining({ title: 'Kept locally' }),
+      null,
+    )
+    await waitFor(() => expect(onCanonical).toHaveBeenCalled())
+    expect(api.updateNote).not.toHaveBeenCalled()
+  })
 })

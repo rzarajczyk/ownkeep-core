@@ -714,7 +714,12 @@ export function NoteEditor({
       )
       if (persistLocal) {
         // Persist locally first so flaky networks cannot block durability.
-        const baselineRevision = await prepareBaseline()
+        let baselineRevision: CreateNoteRevisionRequest | null = null
+        try {
+          baselineRevision = await prepareBaseline()
+        } catch {
+          // Baseline snapshots are best-effort; encryption failures must not block local saves.
+        }
         const canonical = await persistLocal(withLabels.id, wire, {
           ...withLabels,
           clientUpdatedAt,

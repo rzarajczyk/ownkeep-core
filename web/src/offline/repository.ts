@@ -203,8 +203,16 @@ export class LocalRepository {
   /**
    * Acknowledge a specific outbox op after a successful push.
    * Does not discard a newer pending mutation for the same note.
+   *
+   * When rebaseNewerMutation is false (remote-winning conflict), leave any newer
+   * coalesced op and local wire untouched so the next push re-conflicts under LWW.
    */
-  async acknowledgeOutboxOp(op: OutboxUpsertOp, wire: EncryptedNoteWire): Promise<void> {
+  async acknowledgeOutboxOp(
+    op: OutboxUpsertOp,
+    wire: EncryptedNoteWire,
+    options?: { rebaseNewerMutation?: boolean },
+  ): Promise<void> {
+    const rebaseNewerMutation = options?.rebaseNewerMutation !== false
     const db = await this.open()
     const tx = db.transaction(['notes', 'outbox'], 'readwrite')
     const notes = tx.objectStore('notes')
@@ -214,7 +222,7 @@ export class LocalRepository {
     const currentGeneration = current?.generation ?? 1
     if (current && currentGeneration === acknowledgedGeneration) {
       outbox.delete(op.id)
-    } else if (current) {
+    } else if (current && rebaseNewerMutation) {
       outbox.put({
         ...current,
         payload: { ...current.payload, version: wire.version },
@@ -227,7 +235,7 @@ export class LocalRepository {
     const existing = await req<StoredNoteRecord | undefined>(notes.get(op.noteId))
     if (remaining.length === 0) {
       notes.put({ id: wire.id, wire, neverSynced: false } satisfies StoredNoteRecord)
-    } else {
+    } else if (rebaseNewerMutation) {
       for (const rem of remaining) {
         outbox.put({
           ...rem,
