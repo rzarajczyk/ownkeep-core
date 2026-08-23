@@ -618,6 +618,13 @@ class OwnKeepIntegrationTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.status").value("UP"))
 
+        val csp = mockMvc.perform(get("/api/health"))
+            .andExpect(status().isOk)
+            .andReturn()
+            .response
+            .getHeader("Content-Security-Policy")
+        assertThat(csp).contains("script-src 'self' 'wasm-unsafe-eval'")
+
         mockMvc.perform(
             post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
