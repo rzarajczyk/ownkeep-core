@@ -23,7 +23,6 @@ import {
   ArrowUp,
   Bold,
   Check,
-  CircleAlert,
   Code,
   Code2,
   DropletOff,
@@ -111,7 +110,6 @@ import type {
   EncryptedNoteWrite,
   Note,
   NoteRevisionDetail,
-  SaveState,
 } from './types'
 import { newMutationId, nowIso } from './offline/lww'
 import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
@@ -432,7 +430,6 @@ export function NoteEditor({
   const saving = useRef(false)
   const saveFailed = useRef(false)
   const requestId = useRef(0)
-  const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState('')
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [uploadError, setUploadError] = useState('')
@@ -671,7 +668,6 @@ export function NoteEditor({
   const flush = useCallback(async () => {
     if (saving.current || requestedRevision.current <= savedRevision.current) return
     if (!vaultKey) {
-      setSaveState('error')
       setSaveError(t('editor.saveError.vaultLocked'))
       saveFailed.current = true
       return
@@ -681,7 +677,6 @@ export function NoteEditor({
     const capturedDraft = latestDraft.current
     const thisRequest = ++requestId.current
     saveFailed.current = false
-    setSaveState('saving')
     setSaveError('')
     try {
       const labelIds =
@@ -731,7 +726,6 @@ export function NoteEditor({
           if (requestedRevision.current === capturedRevision) {
             latestDraft.current = canonical
             setDraft(canonical)
-            setSaveState('saved')
           } else {
             const merged = {
               ...latestDraft.current,
@@ -759,7 +753,6 @@ export function NoteEditor({
         if (requestedRevision.current === capturedRevision) {
           latestDraft.current = canonical
           setDraft(canonical)
-          setSaveState('saved')
         } else {
           const merged = {
             ...latestDraft.current,
@@ -802,7 +795,6 @@ export function NoteEditor({
           }
         }
         saveFailed.current = true
-        setSaveState('error')
         setSaveError(message)
       }
     } finally {
@@ -834,7 +826,6 @@ export function NoteEditor({
     requestedRevision.current += 1
     setRevision(requestedRevision.current)
     setDraft(next)
-    setSaveState('dirty')
     setSaveError('')
     onOptimistic(next)
   }
@@ -1378,7 +1369,6 @@ export function NoteEditor({
       } catch {
         setUploadError(t('editor.attachments.metadataRefreshFailedAfterUpload'))
       }
-      if (requestedRevision.current === savedRevision.current) setSaveState('saved')
     } catch (reason) {
       setUploadError(errorMessage(reason))
     } finally {
@@ -1532,7 +1522,6 @@ export function NoteEditor({
     latestDraft.current = canonical
     requestedRevision.current = savedRevision.current
     setDraft(canonical)
-    setSaveState('saved')
     setSaveError('')
     onCanonical(canonical)
 
@@ -1696,15 +1685,6 @@ export function NoteEditor({
         onClick={(event) => event.stopPropagation()}
       >
         <header className="editor-header">
-          <span className={`save-status ${saveState}`} role="status" aria-live="polite">
-            {saveState === 'saving' && <LoaderCircle className="spin" aria-hidden="true" />}
-            {saveState === 'saved' && <Check aria-hidden="true" />}
-            {saveState === 'error' && <CircleAlert aria-hidden="true" />}
-            {saveState === 'dirty' && t('editor.saveStatus.dirty')}
-            {saveState === 'saving' && t('editor.saveStatus.saving')}
-            {saveState === 'saved' && t('editor.saveStatus.saved')}
-            {saveState === 'error' && t('editor.saveStatus.error')}
-          </span>
           <div className="editor-mode-tabs" role="tablist" aria-label={t('editor.modes.tablistAria')}>
             <button
               type="button"

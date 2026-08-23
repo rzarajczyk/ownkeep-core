@@ -1314,23 +1314,12 @@ svg {
 .editor { position: relative; display: flex; flex-direction: column; height: 100%; max-height: none; overflow: hidden; border-radius: 18px; }
 .editor-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 10px;
   padding: 8px 14px 0 22px;
   border-bottom: 1px solid rgb(65 67 63 / 12%);
 }
-.save-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  color: #777b77;
-  font-size: 0.74rem;
-}
-.save-status svg { width: 15px; height: 15px; }
-.save-status.saved { color: #34715c; }
-.save-status.error { color: var(--danger); }
 .editor-mode-tabs {
   display: flex;
   align-items: flex-end;
@@ -2575,15 +2564,9 @@ svg {
   }
   .editor { height: 100%; max-height: none; border-radius: 18px; }
   .editor-header {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     padding: 8px max(20px, env(safe-area-inset-right, 0px)) 0 12px;
-  }
-  .save-status {
-    max-width: 28vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .editor-mode-tabs {
     min-width: 0;

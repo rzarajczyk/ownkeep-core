@@ -172,7 +172,9 @@ test('signs in and creates a text note', async ({ page }) => {
   await page.getByLabel('Note title').fill('Smoke test note')
   await page.getByRole('tab', { name: 'Markdown' }).click()
   await page.getByLabel('Note content').fill('Created by Playwright')
-  await expect(page.getByText(/Unsaved changes|Saving|Saved/)).toBeVisible()
+  await page.getByRole('button', { name: 'Close editor' }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  await expect(page.getByText('Smoke test note', { exact: true })).toBeVisible()
 })
 
 test('keeps the mobile editor close control inset from the sheet edge', async ({ page }, testInfo) => {

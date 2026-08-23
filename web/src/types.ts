@@ -210,8 +210,6 @@ export interface NotesPage {
   hasMore: boolean
 }
 
-export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
-
 export interface NoteRevisionSummary {
   id: string
   createdAt: string

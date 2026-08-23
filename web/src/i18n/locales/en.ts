@@ -473,12 +473,6 @@ export default {
       richEdit: 'Rich edit',
       render: 'Render',
     },
-    saveStatus: {
-      dirty: 'Unsaved changes',
-      saving: 'Saving…',
-      saved: 'Saved',
-      error: 'Could not save',
-    },
     saveError: {
       preserved: '{{error}} Your edits are preserved.',
       retry: 'Retry',

@@ -483,12 +483,6 @@ export default {
       richEdit: 'Edycja wizualna',
       render: 'Podgląd',
     },
-    saveStatus: {
-      dirty: 'Niezapisane zmiany',
-      saving: 'Zapisywanie…',
-      saved: 'Zapisano',
-      error: 'Nie udało się zapisać',
-    },
     saveError: {
       preserved: '{{error}} Twoje zmiany zostały zachowane.',
       retry: 'Ponów',
