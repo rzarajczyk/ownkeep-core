@@ -18,6 +18,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, ApiError } from './api'
+import { BatchSelectionToolbar } from './BatchSelectionToolbar'
 import { encryptLabelName } from './crypto/labelCodec'
 import { NoteCard } from './NoteCard'
 import { NotesMasonry } from './NotesMasonry'
@@ -41,7 +42,7 @@ import type { StoredNoteRecord, SyncStatus } from './offline/types'
 import { useOnline } from './offline/useOnline'
 import { Tooltip } from './Tooltip'
 import type { CreateNoteRevisionRequest, EncryptedNoteWrite, Note, User } from './types'
-import { errorMessage } from './utils'
+import { errorMessage, noteToWrite } from './utils'
 import { useVault } from './vault/VaultContext'
 
 const NoteEditor = lazy(() =>
@@ -119,6 +120,8 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const [creating, setCreating] = useState(false)
   const [pendingNewNoteId, setPendingNewNoteId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(() => new Set())
+  const [batchBusy, setBatchBusy] = useState(false)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Note[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -229,6 +232,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       write: EncryptedNoteWrite,
       draft: Note,
       baselineRevision?: CreateNoteRevisionRequest | null,
+      kickSync = true,
     ) => {
       if (!vaultKey) throw new Error(t('errors.vaultLocked'))
       const previous = await repoRef.current.getNote(noteId)
@@ -251,7 +255,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       }
       dispatch({ type: 'upsert', note: localNote })
       updateSearchNote(localNote)
-      engineRef.current?.kick()
+      if (kickSync) engineRef.current?.kick()
       return localNote
     },
     [t, updateSearchNote, vaultKey],
@@ -394,30 +398,213 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
     updateSearchNote(note)
   }
 
-  async function toggleArchive(note: Note) {
-    if (!online) {
-      setToast(t('notes.offline.requiresConnection'))
+  const clearNoteSelection = useCallback(() => {
+    setSelectedNoteIds((current) => {
+      const focusId = current.values().next().value
+      if (focusId) {
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>(`[data-note-id="${focusId}"]`)?.focus()
+        })
+      }
+      return new Set()
+    })
+  }, [])
+
+  function setNoteSelected(note: Note, selected: boolean) {
+    setSelectedNoteIds((current) => {
+      const next = new Set(current)
+      if (selected) next.add(note.id)
+      else next.delete(note.id)
+      return next
+    })
+  }
+
+  function normalizeKnownLabels(note: Note): Note {
+    const labelIds: string[] = []
+    const labels: string[] = []
+    const seenIds = new Set<string>()
+    const seenNames = new Set<string>()
+    for (const id of note.labelIds) {
+      const label = labelIdToName.current.get(id)
+      const lookup = label?.toLowerCase()
+      if (!label || !lookup || seenIds.has(id) || seenNames.has(lookup)) continue
+      seenIds.add(id)
+      seenNames.add(lookup)
+      labelIds.push(id)
+      labels.push(label)
+    }
+    return {
+      ...note,
+      labelIds,
+      labels,
+    }
+  }
+
+  async function persistUpdatedNote(note: Note, updated: Note, kickSync = true) {
+    if (!vaultKey) throw new Error(t('errors.vaultLocked'))
+    const normalized = normalizeKnownLabels(updated)
+    const clientUpdatedAt = nowIso()
+    const clientMutationId = newMutationId()
+    const payload = await toWire(
+      note.id,
+      {
+        ...noteToWrite(normalized),
+        type: normalized.type,
+        title: normalized.title,
+        contentRaw: normalized.contentRaw,
+        items: normalized.items,
+        labelIds: normalized.labelIds,
+        backgroundColor: normalized.backgroundColor,
+        archived: normalized.archived,
+        pinned: normalized.pinned,
+      },
+      vaultKey,
+      {
+        clientUpdatedAt,
+        clientMutationId,
+      },
+    )
+    return persistLocalWrite(note.id, payload, normalized, null, kickSync)
+  }
+
+  async function applyBatchUpdates(
+    transform: (note: Note) => Note | null,
+    successMessage: (count: number) => string,
+    clearAfterSuccess = false,
+  ) {
+    if (batchBusy) return
+    const originals = [...selectedNoteIds]
+      .map((id) => state.byId[id])
+      .filter((note): note is Note => Boolean(note))
+    const updates = originals
+      .map((note) => ({ note, updated: transform(note) }))
+      .filter((entry): entry is { note: Note; updated: Note } => entry.updated !== null)
+    if (updates.length === 0) return
+
+    setBatchBusy(true)
+    const failedIds = new Set<string>()
+    let nextIndex = 0
+    const workers = Array.from(
+      { length: Math.min(4, updates.length) },
+      async () => {
+        while (nextIndex < updates.length) {
+          const entry = updates[nextIndex]
+          nextIndex += 1
+          if (!entry) continue
+          replaceNote(entry.updated)
+          try {
+            await persistUpdatedNote(entry.note, entry.updated, false)
+          } catch {
+            failedIds.add(entry.note.id)
+            replaceNote(entry.note)
+          }
+        }
+      },
+    )
+
+    try {
+      await Promise.all(workers)
+      engineRef.current?.kick()
+      if (failedIds.size > 0) {
+        setSelectedNoteIds((current) => {
+          const next = new Set(current)
+          for (const id of failedIds) next.add(id)
+          return next
+        })
+        setToast(
+          t('notes.batch.partialFailure', {
+            succeeded: updates.length - failedIds.size,
+            failed: failedIds.size,
+          }),
+        )
+      } else {
+        setToast(successMessage(updates.length))
+        if (clearAfterSuccess) clearNoteSelection()
+      }
+    } finally {
+      setBatchBusy(false)
+    }
+  }
+
+  async function applyBatchColor(color: string) {
+    await applyBatchUpdates(
+      (note) =>
+        note.backgroundColor === color ? null : { ...note, backgroundColor: color },
+      (count) => t('notes.batch.colorApplied', { count }),
+    )
+  }
+
+  async function addBatchLabel(label: string) {
+    const lookup = label.toLowerCase()
+    const matchingLabelIds = new Set(
+      [...labelIdToName.current]
+        .filter(([, name]) => name.toLowerCase() === lookup)
+        .map(([id]) => id),
+    )
+    const labelId = labelNameToId.current.get(lookup)
+    if (!labelId) {
+      setToast(t('notes.batch.labelUnavailable'))
       return
     }
+    await applyBatchUpdates(
+      (note) => {
+        if (
+          note.labels.some((candidate) => candidate.toLowerCase() === lookup) ||
+          note.labelIds.some((id) => matchingLabelIds.has(id))
+        ) {
+          return null
+        }
+        return {
+          ...note,
+          labels: [...note.labels, label],
+          labelIds: [...note.labelIds, labelId],
+        }
+      },
+      (count) => t('notes.batch.labelAdded', { count, label }),
+    )
+  }
+
+  async function removeBatchLabel(label: string) {
+    const lookup = label.toLowerCase()
+    const matchingLabelIds = new Set(
+      [...labelIdToName.current]
+        .filter(([, name]) => name.toLowerCase() === lookup)
+        .map(([id]) => id),
+    )
+    await applyBatchUpdates(
+      (note) => {
+        const hasName = note.labels.some(
+          (candidate) => candidate.toLowerCase() === lookup,
+        )
+        const hasId = note.labelIds.some((id) => matchingLabelIds.has(id))
+        if (!hasName && !hasId) return null
+        return {
+          ...note,
+          labels: note.labels.filter((candidate) => candidate.toLowerCase() !== lookup),
+          labelIds: note.labelIds.filter((id) => !matchingLabelIds.has(id)),
+        }
+      },
+      (count) => t('notes.batch.labelRemoved', { count, label }),
+    )
+  }
+
+  async function archiveSelectedNotes() {
+    await applyBatchUpdates(
+      (note) => ({ ...note, archived: !archived }),
+      (count) =>
+        archived
+          ? t('notes.batch.notesRestored', { count })
+          : t('notes.batch.notesArchived', { count }),
+      true,
+    )
+  }
+
+  async function toggleArchive(note: Note) {
     const optimistic = { ...note, archived: !note.archived }
     replaceNote(optimistic)
     try {
-      const wire = await api.updateNote(note.id, {
-        archived: !note.archived,
-        version: note.version,
-        type: note.type,
-        clientUpdatedAt: nowIso(),
-        clientMutationId: newMutationId(),
-      })
-      replaceNote({
-        ...optimistic,
-        archived: wire.archived,
-        version: wire.version,
-        updatedAt: wire.updatedAt,
-        clientUpdatedAt: wire.clientUpdatedAt,
-        clientMutationId: wire.clientMutationId,
-      })
-      setToast(wire.archived ? t('notes.toasts.archived') : t('notes.toasts.restored'))
+      await persistUpdatedNote(note, optimistic)
+      setToast(optimistic.archived ? t('notes.toasts.archived') : t('notes.toasts.restored'))
     } catch (reason) {
       replaceNote(note)
       setToast(t('notes.toasts.restoredAfterArchiveError', { error: errorMessage(reason) }))
@@ -476,6 +663,41 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
 
   const pinnedNotes = useMemo(() => visibleNotes.filter((note) => note.pinned), [visibleNotes])
   const otherNotes = useMemo(() => visibleNotes.filter((note) => !note.pinned), [visibleNotes])
+  const selectedBatchNotes = useMemo(
+    () => visibleNotes.filter((note) => selectedNoteIds.has(note.id)),
+    [selectedNoteIds, visibleNotes],
+  )
+  const selectionMode = selectedNoteIds.size > 0
+  const allVisibleSelected =
+    visibleNotes.length > 0 && visibleNotes.every((note) => selectedNoteIds.has(note.id))
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      clearNoteSelection()
+      return
+    }
+    setSelectedNoteIds(new Set(visibleNotes.map((note) => note.id)))
+  }
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleNotes.map((note) => note.id))
+    setSelectedNoteIds((current) => {
+      const next = new Set([...current].filter((id) => visibleIds.has(id)))
+      if (next.size === current.size) return current
+      return next
+    })
+  }, [visibleNotes])
+
+  useEffect(() => {
+    if (!selectionMode) return
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || batchBusy) return
+      clearNoteSelection()
+    }
+    document.addEventListener('keydown', exitOnEscape)
+    return () => document.removeEventListener('keydown', exitOnEscape)
+  }, [batchBusy, clearNoteSelection, selectionMode])
+
   useEffect(() => {
     setKnownLabels((previous) => {
       const names = new Map<string, string>()
@@ -507,6 +729,9 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       <NoteCard
         key={note.id}
         note={note}
+        selectionMode={selectionMode}
+        selected={selectedNoteIds.has(note.id)}
+        onSelectionChange={setNoteSelected}
         onOpen={(selected) => {
           setPendingNewNoteId(null)
           setSelectedId(selected.id)
@@ -519,7 +744,23 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
+      <header className={`topbar${selectionMode ? ' has-selection' : ''}`}>
+        {selectionMode && (
+          <BatchSelectionToolbar
+            selectedNotes={selectedBatchNotes}
+            visibleCount={visibleNotes.length}
+            allVisibleSelected={allVisibleSelected}
+            archived={archived}
+            busy={batchBusy}
+            knownLabels={knownLabels}
+            onClear={clearNoteSelection}
+            onToggleAll={toggleSelectAll}
+            onApplyColor={applyBatchColor}
+            onAddLabel={addBatchLabel}
+            onRemoveLabel={removeBatchLabel}
+            onArchive={archiveSelectedNotes}
+          />
+        )}
         <button
           type="button"
           className="icon-button mobile-menu"
@@ -634,6 +875,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               type="button"
               className={!archived && !selectedLabel ? 'active' : ''}
               onClick={() => {
+                clearNoteSelection()
                 setArchived(false)
                 setSelectedLabel(null)
                 setNavOpen(false)
@@ -654,6 +896,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                       key={label}
                       className={`nav-subitem${active ? ' active' : ''}`}
                       onClick={() => {
+                        clearNoteSelection()
                         setArchived(false)
                         setSelectedLabel(label)
                         setNavOpen(false)
@@ -671,6 +914,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             type="button"
             className={archived ? 'active' : ''}
             onClick={() => {
+              clearNoteSelection()
               setArchived(true)
               setSelectedLabel(null)
               setNavOpen(false)
@@ -748,7 +992,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                   : t('notes.heading.yourNotes')}
             </h1>
           </div>
-          {!archived && (
+          {!archived && !selectionMode && (
             <div className="create-actions" aria-label={t('notes.addNote')}>
               <button
                 type="button"

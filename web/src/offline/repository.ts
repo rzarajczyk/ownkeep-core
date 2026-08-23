@@ -201,6 +201,42 @@ export class LocalRepository {
   }
 
   /**
+   * Persist a repaired payload only while it is still the current generation.
+   * This prevents recovery work from overwriting a newer coalesced edit.
+   */
+  async replaceOutboxPayloadIfCurrent(op: OutboxUpsertOp): Promise<boolean> {
+    const db = await this.open()
+    const tx = db.transaction(['notes', 'outbox'], 'readwrite')
+    const notes = tx.objectStore('notes')
+    const outbox = tx.objectStore('outbox')
+    const current = await req<OutboxUpsertOp | undefined>(outbox.get(op.id))
+    if (!current || current.generation !== op.generation) {
+      await txDone(tx)
+      db.close()
+      return false
+    }
+
+    outbox.put({ ...current, payload: op.payload } satisfies OutboxUpsertOp)
+    const stored = await req<StoredNoteRecord | undefined>(notes.get(op.noteId))
+    if (stored) {
+      notes.put({
+        ...stored,
+        wire: {
+          ...stored.wire,
+          wrappedNoteKey: op.payload.wrappedNoteKey ?? stored.wire.wrappedNoteKey,
+          ciphertext: op.payload.ciphertext ?? stored.wire.ciphertext,
+          labelIds: op.payload.labelIds ?? stored.wire.labelIds,
+          clientUpdatedAt: op.payload.clientUpdatedAt ?? stored.wire.clientUpdatedAt,
+          clientMutationId: op.payload.clientMutationId ?? stored.wire.clientMutationId,
+        },
+      } satisfies StoredNoteRecord)
+    }
+    await txDone(tx)
+    db.close()
+    return true
+  }
+
+  /**
    * Acknowledge a specific outbox op after a successful push.
    * Does not discard a newer pending mutation for the same note.
    *

@@ -1,4 +1,9 @@
 import { api, ApiError } from '../api'
+import {
+  decryptNotePayload,
+  encryptNotePayload,
+  unwrapNoteKey,
+} from '../crypto/noteCodec'
 import type { EncryptedNoteWire, EncryptedNoteWrite } from '../types'
 import { buildConflictRevisionSnapshots } from './conflictSnapshots'
 import { isNewerMutation } from './lww'
@@ -159,6 +164,36 @@ export class SyncEngine {
         this.onStoreChanged?.()
         return
       }
+      if (error instanceof ApiError && error.code === 'invalid_labels') {
+        const sanitizedOp = await this.sanitizeDeletedLabels(op)
+        if (!sanitizedOp) throw error
+        await this.repo.replaceOutboxPayloadIfCurrent(sanitizedOp)
+        try {
+          const wire = stored?.neverSynced
+            ? await api.createNote(sanitizedOp.payload)
+            : await api.updateNote(sanitizedOp.noteId, sanitizedOp.payload)
+          await this.repo.acknowledgeOutboxOp(op, wire)
+          this.onStoreChanged?.()
+          return
+        } catch (retryError) {
+          if (retryError instanceof ApiError && retryError.code === 'version_conflict') {
+            await this.resolveConflict(sanitizedOp)
+            return
+          }
+          if (retryError instanceof ApiError && retryError.code === 'note_exists') {
+            const wire = await api.note(op.noteId)
+            await this.repo.acknowledgeOutboxOp(op, wire)
+            this.onStoreChanged?.()
+            return
+          }
+          if (retryError instanceof ApiError && retryError.code === 'note_not_found') {
+            await this.repo.dropOutboxOpAndNote(op)
+            this.onStoreChanged?.()
+            return
+          }
+          throw retryError
+        }
+      }
       if (error instanceof ApiError && error.code === 'version_conflict') {
         await this.resolveConflict(op)
         return
@@ -169,6 +204,35 @@ export class SyncEngine {
         return
       }
       throw error
+    }
+  }
+
+  private async sanitizeDeletedLabels(op: OutboxUpsertOp): Promise<OutboxUpsertOp | null> {
+    if (!this.vaultKey || !op.payload.wrappedNoteKey || !op.payload.ciphertext) return null
+    const validLabelIds = new Set((await api.listLabels()).map((label) => label.id))
+    const labelIds = (op.payload.labelIds ?? []).filter((id) => validLabelIds.has(id))
+    if (labelIds.length === (op.payload.labelIds ?? []).length) return null
+
+    const noteKey = await unwrapNoteKey(
+      this.vaultKey,
+      op.noteId,
+      op.payload.wrappedNoteKey,
+    )
+    const plaintext = await decryptNotePayload(
+      op.noteId,
+      noteKey,
+      op.payload.ciphertext,
+    )
+    return {
+      ...op,
+      payload: {
+        ...op.payload,
+        labelIds,
+        ciphertext: await encryptNotePayload(op.noteId, noteKey, {
+          ...plaintext,
+          labelIds,
+        }),
+      },
     }
   }
 

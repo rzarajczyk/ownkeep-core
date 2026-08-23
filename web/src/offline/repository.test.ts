@@ -125,6 +125,76 @@ describe('LocalRepository outbox acknowledgement', () => {
 })
 
 describe('LocalRepository sync helpers', () => {
+  it('persists repaired outbox payloads without overwriting a newer generation', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    await repo.upsertLocalNote(wire('cipher-stale', 'mutation-a'), {
+      ...write('cipher-stale', 'mutation-a'),
+      labelIds: ['valid-label', 'deleted-label'],
+    })
+    const [original] = await repo.listOutbox()
+    const repaired = {
+      ...original!,
+      payload: {
+        ...original!.payload,
+        ciphertext: 'cipher-repaired',
+        labelIds: ['valid-label'],
+      },
+    }
+
+    expect(await repo.replaceOutboxPayloadIfCurrent(repaired)).toBe(true)
+    expect((await repo.listOutbox())[0]?.payload.ciphertext).toBe('cipher-repaired')
+    expect((await repo.getNote(NOTE_ID))?.wire.labelIds).toEqual(['valid-label'])
+
+    await repo.upsertLocalNote(
+      wire('cipher-newer', 'mutation-b'),
+      write('cipher-newer', 'mutation-b'),
+    )
+    expect(await repo.replaceOutboxPayloadIfCurrent(repaired)).toBe(false)
+    expect((await repo.listOutbox())[0]?.payload.ciphertext).toBe('cipher-newer')
+  })
+
+  it('queues independent full-note batch updates and coalesces later changes per note', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const secondId = '22222222-2222-4222-8222-222222222222'
+    await repo.upsertLocalNote(
+      wire('cipher-a', 'mutation-a', 1, { backgroundColor: '#fff475' }),
+      { ...write('cipher-a', 'mutation-a'), backgroundColor: '#fff475' },
+    )
+    await repo.upsertLocalNote(
+      {
+        ...wire('cipher-b', 'mutation-b', 1, { archived: true }),
+        id: secondId,
+      },
+      {
+        ...write('cipher-b', 'mutation-b'),
+        id: secondId,
+        archived: true,
+      },
+    )
+
+    expect(await repo.pendingNoteIds()).toEqual(new Set([NOTE_ID, secondId]))
+    expect(await repo.listOutbox()).toHaveLength(2)
+
+    await repo.upsertLocalNote(
+      wire('cipher-a-label', 'mutation-a-label', 1, {
+        backgroundColor: '#fff475',
+        labelIds: ['label-1'],
+      }),
+      {
+        ...write('cipher-a-label', 'mutation-a-label'),
+        backgroundColor: '#fff475',
+        labelIds: ['label-1'],
+      },
+    )
+
+    const ops = await repo.listOutbox()
+    expect(ops).toHaveLength(2)
+    const first = ops.find((op) => op.noteId === NOTE_ID)
+    expect(first?.payload.ciphertext).toBe('cipher-a-label')
+    expect(first?.payload.labelIds).toEqual(['label-1'])
+    expect(first?.generation).toBe(2)
+  })
+
   it('marks neverSynced and coalesces outbox to one op', async () => {
     const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
     await repo.upsertLocalNote(wire('cipher-a', 'mutation-a'), write('cipher-a', 'mutation-a'), {

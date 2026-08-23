@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   createNoteRevision: vi.fn(),
   createNote: vi.fn(),
   updateNote: vi.fn(),
+  listLabels: vi.fn(),
 }))
 
 const ApiError = vi.hoisted(() => {
@@ -30,6 +31,20 @@ vi.mock('../api', () => ({
   api,
   ApiError,
 }))
+
+const noteCodec = vi.hoisted(() => ({
+  unwrapNoteKey: vi.fn().mockResolvedValue(new Uint8Array(32)),
+  decryptNotePayload: vi.fn().mockResolvedValue({
+    v: 1,
+    title: 'Queued note',
+    contentRaw: 'Body',
+    items: [],
+    labelIds: ['valid-label', 'deleted-label'],
+  }),
+  encryptNotePayload: vi.fn().mockResolvedValue('sanitized-ciphertext'),
+}))
+
+vi.mock('../crypto/noteCodec', () => noteCodec)
 
 vi.mock('./conflictSnapshots', () => ({
   buildConflictRevisionSnapshots: vi.fn().mockResolvedValue({
@@ -106,6 +121,78 @@ describe('SyncEngine conflict resolution', () => {
     ).pushUpsert(op)
 
     expect(calls).toEqual(['baseline', 'update'])
+    expect(acknowledgeOutboxOp).toHaveBeenCalledWith(op, remote)
+  })
+
+  it('removes deleted label IDs and re-encrypts before retrying a rejected outbox write', async () => {
+    const remote = {
+      ...remoteWire(8),
+      ciphertext: 'sanitized-ciphertext',
+      labelIds: ['valid-label'],
+    }
+    api.listLabels.mockResolvedValue([
+      {
+        id: 'valid-label',
+        ciphertext: 'encrypted-label',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ])
+    api.updateNote
+      .mockRejectedValueOnce(new ApiError('invalid labels', 400, 'invalid_labels'))
+      .mockResolvedValueOnce(remote)
+    const acknowledgeOutboxOp = vi.fn()
+    const replaceOutboxPayloadIfCurrent = vi.fn().mockResolvedValue(true)
+    const repo = {
+      getNote: vi.fn().mockResolvedValue({ id: remote.id, wire: remote, neverSynced: false }),
+      acknowledgeOutboxOp,
+      replaceOutboxPayloadIfCurrent,
+    } as unknown as LocalRepository
+    const engine = new SyncEngine(repo)
+    engine.setVaultKey(new Uint8Array(32))
+    const op: OutboxUpsertOp = {
+      id: 'operation-with-deleted-label',
+      type: 'upsertNote',
+      noteId: remote.id,
+      generation: 1,
+      payload: {
+        id: remote.id,
+        version: 7,
+        type: 'TEXT',
+        wrappedNoteKey: 'local-wrap',
+        ciphertext: 'local-cipher',
+        labelIds: ['valid-label', 'deleted-label'],
+        clientUpdatedAt: '2026-01-01T00:02:00.000Z',
+        clientMutationId: 'local-mutation',
+      },
+      createdAt: '2026-01-01T00:02:00.000Z',
+      updatedAt: '2026-01-01T00:02:00.000Z',
+    }
+
+    await (
+      engine as unknown as { pushUpsert(operation: OutboxUpsertOp): Promise<void> }
+    ).pushUpsert(op)
+
+    expect(api.updateNote).toHaveBeenNthCalledWith(
+      2,
+      remote.id,
+      expect.objectContaining({
+        labelIds: ['valid-label'],
+        ciphertext: 'sanitized-ciphertext',
+      }),
+    )
+    expect(noteCodec.encryptNotePayload).toHaveBeenCalledWith(
+      remote.id,
+      expect.any(Uint8Array),
+      expect.objectContaining({ labelIds: ['valid-label'] }),
+    )
+    expect(replaceOutboxPayloadIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          labelIds: ['valid-label'],
+          ciphertext: 'sanitized-ciphertext',
+        }),
+      }),
+    )
     expect(acknowledgeOutboxOp).toHaveBeenCalledWith(op, remote)
   })
 
@@ -290,6 +377,72 @@ describe('SyncEngine conflict resolution', () => {
       noteId,
       expect.objectContaining({ version: 3, ciphertext: 'cipher-b' }),
     )
+  })
+})
+
+describe('SyncEngine batch outbox push', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('pushes and acknowledges every independently queued note update', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const noteIds = [
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    ]
+    for (const [index, id] of noteIds.entries()) {
+      const queued = {
+        ...remoteWire(1),
+        id,
+        backgroundColor: '#fff475',
+        ciphertext: `batch-cipher-${index}`,
+        clientMutationId: `batch-mutation-${index}`,
+      }
+      await repo.putSyncedNotes([queued], [])
+      await repo.upsertLocalNote(queued, {
+        id,
+        type: 'TEXT',
+        backgroundColor: '#fff475',
+        archived: false,
+        pinned: false,
+        wrappedNoteKey: queued.wrappedNoteKey,
+        ciphertext: queued.ciphertext,
+        labelIds: [],
+        version: 1,
+        clientUpdatedAt: queued.clientUpdatedAt,
+        clientMutationId: queued.clientMutationId,
+      })
+    }
+    api.updateNote.mockImplementation(async (id: string, payload: Record<string, unknown>) => ({
+      ...remoteWire(2),
+      id,
+      type: payload.type ?? 'TEXT',
+      backgroundColor: payload.backgroundColor ?? '#ffffff',
+      archived: payload.archived ?? false,
+      pinned: payload.pinned ?? false,
+      wrappedNoteKey: payload.wrappedNoteKey ?? 'wrap',
+      ciphertext: payload.ciphertext ?? 'cipher',
+      labelIds: payload.labelIds ?? [],
+      clientUpdatedAt: payload.clientUpdatedAt ?? '2026-01-01T00:02:00.000Z',
+      clientMutationId: payload.clientMutationId ?? null,
+    }))
+
+    const engine = new SyncEngine(repo)
+    await (
+      engine as unknown as { pushOutbox(): Promise<void> }
+    ).pushOutbox()
+
+    expect(api.updateNote).toHaveBeenCalledTimes(2)
+    expect(api.updateNote).toHaveBeenCalledWith(
+      noteIds[0],
+      expect.objectContaining({ backgroundColor: '#fff475', ciphertext: 'batch-cipher-0' }),
+    )
+    expect(api.updateNote).toHaveBeenCalledWith(
+      noteIds[1],
+      expect.objectContaining({ backgroundColor: '#fff475', ciphertext: 'batch-cipher-1' }),
+    )
+    expect(await repo.listOutbox()).toEqual([])
   })
 })
 
