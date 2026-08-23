@@ -151,7 +151,7 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
-test('signs in and creates a text note', async ({ page }) => {
+async function signInAndOpenEditor(page: Page) {
   await page.goto('/')
   await page.getByLabel('Email').fill('demo@example.com')
   await page.getByLabel('Password').fill('password')
@@ -165,8 +165,47 @@ test('signs in and creates a text note', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Your notes' })).toBeVisible()
   await page.getByLabel('Add note').getByRole('button', { name: 'Add note' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
+}
+
+test('signs in and creates a text note', async ({ page }) => {
+  await signInAndOpenEditor(page)
   await page.getByLabel('Note title').fill('Smoke test note')
   await page.getByRole('tab', { name: 'Markdown' }).click()
   await page.getByLabel('Note content').fill('Created by Playwright')
   await expect(page.getByText(/Unsaved changes|Saving|Saved/)).toBeVisible()
+})
+
+test('keeps the mobile editor close control inset from the sheet edge', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'regression is full-bleed mobile layout')
+  await page.addInitScript(() => {
+    localStorage.setItem('ownkeep.language', 'pl')
+  })
+  await page.goto('/')
+  await page.getByLabel('E-mail').fill('demo@example.com')
+  await page.getByLabel('Hasło').fill('password')
+  await page.getByRole('button', { name: 'Zaloguj się' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Zapisz swój klucz odzyskiwania' })).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('button', { name: 'Zapisałem go — kontynuuj' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Twoje notatki' })).toBeVisible()
+  await page.getByLabel('Dodaj notatkę').getByRole('button', { name: 'Dodaj notatkę' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Edycja wizualna' })).toBeVisible()
+
+  const close = page.getByRole('button', { name: 'Zamknij edytor' })
+  const dialogBox = await dialog.boundingBox()
+  const closeBox = await close.boundingBox()
+  expect(dialogBox).toBeTruthy()
+  expect(closeBox).toBeTruthy()
+  const inset = dialogBox!.x + dialogBox!.width - (closeBox!.x + closeBox!.width)
+  expect(inset).toBeGreaterThanOrEqual(16)
+  await page.screenshot({
+    path: testInfo.outputPath('editor-close-inset.png'),
+    fullPage: false,
+  })
 })

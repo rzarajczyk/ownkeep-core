@@ -1300,7 +1300,9 @@ svg {
 /* Editor */
 .note-dialog {
   width: min(700px, calc(100vw - 30px));
-  max-height: min(90vh, 850px);
+  height: 80dvh;
+  max-height: 80dvh;
+  margin: auto;
   padding: 0;
   overflow: visible;
   border: 0;
@@ -1309,7 +1311,7 @@ svg {
   box-shadow: 0 30px 90px rgb(22 27 23 / 26%);
 }
 .note-dialog::backdrop { background: rgb(30 34 31 / 48%); backdrop-filter: blur(3px); }
-.editor { position: relative; display: flex; flex-direction: column; max-height: min(90vh, 850px); overflow: hidden; border-radius: 18px; }
+.editor { position: relative; display: flex; flex-direction: column; height: 100%; max-height: none; overflow: hidden; border-radius: 18px; }
 .editor-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -1338,6 +1340,7 @@ svg {
 .editor-mode-tabs button {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 5px;
   min-height: 32px;
   padding: 7px 10px 8px;
@@ -1378,9 +1381,6 @@ svg {
   font-size: 1.35rem;
   font-weight: 700;
 }
-.editor-title:focus-visible {
-  outline: none;
-}
 .editor-title::placeholder, .editor-body::placeholder { color: #888b87; }
 .editor-content-area {
   position: relative;
@@ -1389,21 +1389,22 @@ svg {
   flex: 1;
   flex-direction: column;
 }
-.editor-markdown-preview {
-  flex: 1;
-  min-height: 260px;
-  margin: 0 12px 12px;
-  padding: 8px 8px 18px;
-  overflow: auto;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  cursor: text;
-  transition: background 120ms ease, border-color 120ms ease;
+.editor-title:focus,
+.editor-title:focus-visible,
+.editor-content-area :is(:focus, :focus-visible) {
+  outline: none;
 }
-.editor-markdown-preview:hover,
-.editor-markdown-preview:focus-within {
-  border-color: rgb(31 85 70 / 16%);
-  background: rgb(255 255 255 / 28%);
+.editor-markdown-preview {
+  width: calc(100% - 40px);
+  flex: 1;
+  min-height: 0;
+  margin: 0 20px;
+  padding: 8px 0 18px;
+  overflow: auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  cursor: text;
 }
 .editor-preview-empty {
   margin: 0;
@@ -1416,7 +1417,7 @@ svg {
   flex: 1;
   margin: 0 20px;
   padding: 8px 0 18px;
-  resize: vertical;
+  resize: none;
   border: 0;
   outline: 0;
   color: var(--ink);
@@ -1424,24 +1425,16 @@ svg {
   font-size: 0.96rem;
   line-height: 1.6;
 }
-.editor-body:focus-visible {
-  outline: none;
-}
 .rich-block-editor-host {
-  width: calc(100% - 24px);
+  width: calc(100% - 40px);
   min-height: 0;
   flex: 1;
-  margin: 0 12px 12px;
-  padding: 8px 8px 18px;
+  margin: 0 20px;
+  padding: 8px 0 18px;
   overflow: auto;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.rich-block-editor-host:hover,
-.rich-block-editor-host:focus-within {
-  border-color: rgb(31 85 70 / 16%);
-  background: rgb(255 255 255 / 28%);
+  border: 0;
+  outline: 0;
+  background: transparent;
 }
 .rich-block-editor-host .tiptap,
 .rich-block-editor {
@@ -1546,17 +1539,12 @@ svg {
 }
 .checklist-editor { min-height: 0; flex: 1; padding: 10px 16px 18px 12px; overflow: auto; }
 .checklist-editor.preview-mode {
-  margin: 0 12px 8px;
-  padding: 9px 4px 17px 0;
-  border: 1px solid transparent;
-  border-radius: 10px;
+  margin: 0 20px 8px;
+  padding: 9px 0 17px;
+  border: 0;
+  outline: 0;
+  background: transparent;
   cursor: text;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.checklist-editor.preview-mode:hover,
-.checklist-editor.preview-mode:focus-within {
-  border-color: rgb(31 85 70 / 16%);
-  background: rgb(255 255 255 / 28%);
 }
 .checklist-row {
   display: grid;
@@ -2577,9 +2565,33 @@ svg {
   .create-actions .primary-button { width: 50px; padding: 0; font-size: 0; box-shadow: var(--shadow); }
   .note-card { margin-bottom: 12px; }
   .card-actions { opacity: 1; }
-  .note-dialog { width: 100vw; max-width: none; max-height: 100dvh; margin: auto 0 0; border-radius: 18px 18px 0 0; }
-  .editor { max-height: 92dvh; border-radius: 18px 18px 0 0; }
-  .editor-body { min-height: 240px; }
+  .note-dialog {
+    width: min(700px, calc(100vw - 24px));
+    height: 80dvh;
+    max-width: none;
+    max-height: 80dvh;
+    margin: auto;
+    border-radius: 18px;
+  }
+  .editor { height: 100%; max-height: none; border-radius: 18px; }
+  .editor-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 8px max(20px, env(safe-area-inset-right, 0px)) 0 12px;
+  }
+  .save-status {
+    max-width: 28vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .editor-mode-tabs {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .editor-mode-tabs::-webkit-scrollbar { display: none; }
+  .editor-mode-tabs button { padding-inline: 8px; }
   .checklist-row { grid-template-columns: 22px 21px minmax(0, 1fr) 28px; }
   .checklist-row.preview { grid-template-columns: 22px 21px minmax(0, 1fr); }
   .checklist-row .icon-button { opacity: 1; }
