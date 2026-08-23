@@ -7,6 +7,12 @@ spring:
     url: ${OWNKEEP_DATABASE_URL:jdbc:postgresql://localhost:5432/ownkeep}
     username: ${OWNKEEP_DATABASE_USER:ownkeep}
     password: ${OWNKEEP_DATABASE_PASSWORD:ownkeep}
+    hikari:
+      # Neon suspends after ~5 minutes with no sessions. Keep the pool empty when idle
+      # (Cloud Run also freezes CPU between requests, so keepalives would never stop).
+      minimum-idle: 0
+      idle-timeout: 10000
+      keepalive-time: 0
   jpa:
     open-in-view: false
     hibernate:
@@ -39,6 +45,9 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    db:
+      enabled: false
 
 springdoc:
   api-docs:

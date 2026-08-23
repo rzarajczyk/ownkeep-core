@@ -433,16 +433,21 @@ class NoteRevisionService(
 class NoteRevisionPurgeScheduler(
     private val noteRevisionService: NoteRevisionService,
     private val properties: OwnKeepProperties,
+    private val idleJdbcConnectionReleaser: IdleJdbcConnectionReleaser,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(cron = "0 30 3 * * *")
     fun purgeExpiredRevisionsAndAttachments() {
-        val retention = properties.noteRevisionRetention
-        if (retention.isNegative || retention.isZero) return
-        val purged = noteRevisionService.purgeExpired()
-        if (purged > 0) {
-            log.info("Purged {} expired note revision/attachment record(s)", purged)
+        try {
+            val retention = properties.noteRevisionRetention
+            if (retention.isNegative || retention.isZero) return
+            val purged = noteRevisionService.purgeExpired()
+            if (purged > 0) {
+                log.info("Purged {} expired note revision/attachment record(s)", purged)
+            }
+        } finally {
+            idleJdbcConnectionReleaser.releaseIdleConnections()
         }
     }
 }

@@ -2,6 +2,7 @@ package com.ownkeep.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.ownkeep.api.storage.AttachmentBlobStore
+import com.zaxxer.hikari.HikariDataSource
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -71,6 +72,9 @@ class OwnKeepIntegrationTest {
 
     @Autowired
     lateinit var transactionManager: org.springframework.transaction.PlatformTransactionManager
+
+    @Autowired
+    lateinit var dataSource: javax.sql.DataSource
 
     @org.junit.jupiter.api.BeforeEach
     fun ensureBobUser() {
@@ -598,6 +602,14 @@ class OwnKeepIntegrationTest {
         assertThat(userRepository.findById(bobId)).isEmpty
         assertThat(attachmentRepository.findById(attachmentId)).isEmpty
         assertThat(attachmentBlobStore.exists(storagePath)).isFalse()
+    }
+
+    @Test
+    fun `hikari pool does not retain idle connections`() {
+        val hikari = dataSource.unwrap(HikariDataSource::class.java)
+        assertThat(hikari.minimumIdle).isZero()
+        assertThat(hikari.idleTimeout).isEqualTo(10_000)
+        assertThat(hikari.keepaliveTime).isZero()
     }
 
     @Test

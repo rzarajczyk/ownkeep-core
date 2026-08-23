@@ -7,8 +7,6 @@ import jakarta.servlet.http.HttpServletResponse
 import jakarta.validation.ConstraintViolationException
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
-import org.springframework.boot.actuate.health.HealthEndpoint
-import org.springframework.boot.actuate.health.Status
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -175,12 +173,8 @@ class ApiExceptionHandler {
 }
 
 @RestController
-class HealthController(private val healthEndpoint: HealthEndpoint) {
+class HealthController {
     @GetMapping("/health")
-    fun health(): ResponseEntity<Map<String, String>> {
-        val status = healthEndpoint.health().status
-        return ResponseEntity
-            .status(if (status == Status.UP) HttpStatus.OK else HttpStatus.SERVICE_UNAVAILABLE)
-            .body(mapOf("status" to status.code))
-    }
+    fun health(): ResponseEntity<Map<String, String>> =
+        ResponseEntity.ok(mapOf("status" to "UP"))
 }

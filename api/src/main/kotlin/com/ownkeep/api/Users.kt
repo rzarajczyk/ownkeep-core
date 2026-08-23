@@ -250,18 +250,23 @@ class UserManagementService(
 class DeletedUserPurgeScheduler(
     private val properties: OwnKeepProperties,
     private val userManagementService: UserManagementService,
+    private val idleJdbcConnectionReleaser: IdleJdbcConnectionReleaser,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val clock: Clock = Clock.systemUTC()
 
     @Scheduled(cron = "0 15 3 * * *")
     fun purgeExpiredDeletedUsers() {
-        val retention = properties.deletedUserRetention
-        if (retention.isNegative || retention.isZero) return
-        val cutoff = clock.instant().minus(retention)
-        val purged = userManagementService.purgeExpiredDeletedUsers(cutoff)
-        if (purged > 0) {
-            log.info("Permanently deleted {} soft-deleted account(s) past retention", purged)
+        try {
+            val retention = properties.deletedUserRetention
+            if (retention.isNegative || retention.isZero) return
+            val cutoff = clock.instant().minus(retention)
+            val purged = userManagementService.purgeExpiredDeletedUsers(cutoff)
+            if (purged > 0) {
+                log.info("Permanently deleted {} soft-deleted account(s) past retention", purged)
+            }
+        } finally {
+            idleJdbcConnectionReleaser.releaseIdleConnections()
         }
     }
 }
