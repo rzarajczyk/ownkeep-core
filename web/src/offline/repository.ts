@@ -327,6 +327,26 @@ export class LocalRepository {
     return (await this.listOutbox()).length
   }
 
+  async clearOutbox(): Promise<void> {
+    const db = await this.open()
+    const tx = db.transaction('outbox', 'readwrite')
+    tx.objectStore('outbox').clear()
+    await txDone(tx)
+    db.close()
+  }
+
+  /** Drop notes, outbox, label cache, and sync cursor. Keep the cached vault wrap. */
+  async clearNotesAndLabels(): Promise<void> {
+    const db = await this.open()
+    const tx = db.transaction(['notes', 'outbox', 'labels', 'meta'], 'readwrite')
+    tx.objectStore('notes').clear()
+    tx.objectStore('outbox').clear()
+    tx.objectStore('labels').clear()
+    tx.objectStore('meta').delete('cursor')
+    await txDone(tx)
+    db.close()
+  }
+
   async clearAll(): Promise<void> {
     const db = await this.open()
     const tx = db.transaction(['meta', 'vault', 'notes', 'outbox', 'labels'], 'readwrite')

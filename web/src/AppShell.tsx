@@ -1121,9 +1121,11 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       )}
       {importOpen && online && (
         <KeepImportDialog
+          repo={repoRef.current}
+          pauseSync={() => engineRef.current?.pause()}
+          resumeSync={() => engineRef.current?.resume()}
           onClose={() => setImportOpen(false)}
           onCompleted={async () => {
-            engineRef.current?.kick()
             await hydrateFromLocal()
             setToast(t('import.toastCompleted'))
           }}

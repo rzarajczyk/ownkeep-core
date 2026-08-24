@@ -91,9 +91,3 @@ ownkeep:
     gcs:
       bucket: ${OWNKEEP_ATTACHMENT_GCS_BUCKET:}
       prefix: ${OWNKEEP_ATTACHMENT_GCS_PREFIX:}
-  takeout-import:
-    max-upload-size: ${OWNKEEP_IMPORT_MAX_UPLOAD_SIZE:104857600}
-    max-entries: ${OWNKEEP_IMPORT_MAX_ENTRIES:5000}
-    max-entry-size: ${OWNKEEP_IMPORT_MAX_ENTRY_SIZE:52428800}
-    max-uncompressed-size: ${OWNKEEP_IMPORT_MAX_UNCOMPRESSED_SIZE:524288000}
-    max-warnings: ${OWNKEEP_IMPORT_MAX_WARNINGS:100}

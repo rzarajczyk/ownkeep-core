@@ -570,4 +570,22 @@ describe('SyncEngine pull', () => {
     expect(await repo.listOutbox()).toEqual([])
     expect((await repo.getNote(noteId))?.neverSynced).toBe(false)
   })
+
+  it('does not pull while paused', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    api.notes.mockResolvedValue({
+      items: [],
+      deletedIds: [],
+      nextUpdatedAfter: null,
+      nextAfterId: null,
+      hasMore: false,
+    })
+    const engine = new SyncEngine(repo)
+    engine.start()
+    engine.pause()
+    api.notes.mockClear()
+    await engine.sync()
+    expect(api.notes).not.toHaveBeenCalled()
+    engine.stop()
+  })
 })

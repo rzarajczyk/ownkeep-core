@@ -148,13 +148,38 @@ export default {
       'Notes are extracted from the Google Takeout ZIP in your browser, then encrypted before upload. The server never sees plaintext import content.',
     chooseFile: 'Google Keep Takeout ZIP',
     cancel: 'Cancel',
+    back: 'Back',
+    continue: 'Continue',
     submit: 'Import',
     submitting: 'Importing…',
-    progress: 'Importing… {{progress}}%',
+    progress: {
+      clearing: 'Clearing vault… {{progress}}%',
+      importing: 'Importing… {{progress}}%',
+    },
     done: 'Done',
     vaultLocked: 'Unlock the vault before importing.',
     noFileSelected: 'Choose the Google Keep Takeout ZIP file.',
     invalidFile: 'Choose a .zip file downloaded from Google Takeout.',
+    replaceConfirm: 'I understand this deletes all current notes, labels, and attachments.',
+    replaceConfirmRequired: 'Confirm that you want to replace the vault before importing.',
+    mode: {
+      question: 'How would you like to import the notes?',
+      replace: {
+        title: 'Replace my vault',
+        description:
+          'Delete existing notes, labels and attachments and import everything from Google Keep. This will make your OwnKeep notes an exact copy of Google Keep.',
+      },
+      add: {
+        title: 'Add notes to the current vault',
+        description:
+          'All imported notes will get an additional label so you can find them easily.',
+      },
+    },
+    errors: {
+      zipTooLarge: 'This ZIP is larger than {{max}} MiB. Choose a smaller Takeout archive.',
+      unzipTooLarge:
+        'This ZIP expands to more than {{max}} MiB uncompressed. Choose a smaller Takeout archive.',
+    },
     result: {
       imported_one: 'Imported {{count}} note',
       imported_other: 'Imported {{count}} notes',
@@ -165,6 +190,7 @@ export default {
       missingAttachment: 'Missing attachment {{relative}} for {{path}}',
       skipped: 'Skipped {{path}}: {{error}}',
       unknownError: 'unknown error',
+      unknownColor: 'Unknown Keep color “{{color}}” for {{path}} was mapped to white',
     },
     toastCompleted: 'Google Keep import completed',
   },

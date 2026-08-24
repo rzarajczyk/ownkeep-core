@@ -40,6 +40,7 @@ vi.mock('./api', () => ({
     createNoteRevision: vi.fn(),
     conflictResolve: vi.fn(),
     deleteNote: vi.fn(),
+    deleteLabel: vi.fn(),
     changePassword: vi.fn(),
     deleteAccount: vi.fn(),
     listUsers: vi.fn(),

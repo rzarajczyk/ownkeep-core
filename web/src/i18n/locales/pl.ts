@@ -148,13 +148,38 @@ export default {
       'Notatki są odczytywane z pliku ZIP Google Takeout w Twojej przeglądarce, a następnie szyfrowane przed przesłaniem. Serwer nigdy nie widzi treści importu w postaci jawnej.',
     chooseFile: 'Plik ZIP Google Keep Takeout',
     cancel: 'Anuluj',
+    back: 'Wstecz',
+    continue: 'Dalej',
     submit: 'Importuj',
     submitting: 'Importowanie…',
-    progress: 'Importowanie… {{progress}}%',
+    progress: {
+      clearing: 'Czyszczenie sejfu… {{progress}}%',
+      importing: 'Importowanie… {{progress}}%',
+    },
     done: 'Gotowe',
     vaultLocked: 'Odblokuj sejf przed importem.',
     noFileSelected: 'Wybierz plik ZIP z eksportu Google Keep Takeout.',
     invalidFile: 'Wybierz plik .zip pobrany z Google Takeout.',
+    replaceConfirm: 'Rozumiem, że spowoduje to usunięcie wszystkich obecnych notatek, etykiet i załączników.',
+    replaceConfirmRequired: 'Potwierdź, że chcesz zastąpić sejf, zanim zaczniesz import.',
+    mode: {
+      question: 'Jak chcesz zaimportować notatki?',
+      replace: {
+        title: 'Zastąp mój sejf',
+        description:
+          'Usuń istniejące notatki, etykiety i załączniki i zaimportuj wszystko z Google Keep. Notatki w OwnKeep będą dokładną kopią Google Keep.',
+      },
+      add: {
+        title: 'Dodaj notatki do obecnego sejfu',
+        description:
+          'Wszystkie zaimportowane notatki dostaną dodatkową etykietę, żeby łatwo je znaleźć.',
+      },
+    },
+    errors: {
+      unzipTooLarge:
+        'Ten plik ZIP po rozpakowaniu zajmuje więcej niż {{max}} MiB. Wybierz mniejsze archiwum Takeout.',
+      zipTooLarge: 'Ten plik ZIP jest większy niż {{max}} MiB. Wybierz mniejsze archiwum Takeout.',
+    },
     result: {
       imported_one: 'Zaimportowano {{count}} notatkę',
       imported_few: 'Zaimportowano {{count}} notatki',
@@ -167,6 +192,7 @@ export default {
       missingAttachment: 'Brak załącznika {{relative}} dla {{path}}',
       skipped: 'Pominięto {{path}}: {{error}}',
       unknownError: 'nieznany błąd',
+      unknownColor: 'Nieznany kolor Keep „{{color}}” dla {{path}} został zastąpiony bielą',
     },
     toastCompleted: 'Import z Google Keep zakończony',
   },

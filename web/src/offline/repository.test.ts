@@ -247,6 +247,25 @@ describe('LocalRepository sync helpers', () => {
     expect(notes[0]?.neverSynced).toBe(false)
   })
 
+  it('clearNotesAndLabels drops notes and outbox but keeps the vault cache', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const vault = {
+      kdfSalt: 'aa',
+      kdfParams: { alg: 'argon2id' as const, m: 65536, t: 3, p: 1 },
+      wrappedVaultKey: 'wrap',
+      wrappedVaultKeyRecovery: 'recovery-wrap',
+      hasRecoveryKey: true,
+      initialized: true,
+      needsRecoveryUnlock: false,
+    }
+    await repo.cacheVault(vault)
+    await repo.upsertLocalNote(wire('cipher-a', 'mutation-a'), write('cipher-a', 'mutation-a'))
+    await repo.clearNotesAndLabels()
+    expect(await repo.listNotes()).toEqual([])
+    expect(await repo.listOutbox()).toEqual([])
+    expect(await repo.getCachedVault()).toEqual(vault)
+  })
+
   it('pendingNoteIds includes outbox notes', async () => {
     const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
     expect(await repo.pendingNoteIds()).toEqual(new Set())

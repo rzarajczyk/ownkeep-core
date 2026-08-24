@@ -239,8 +239,6 @@ only the host mapping uses 7001.
 
 - Postgres data: `CHANGE_TO_COMPOSE_DATA_PATH/ownkeep/postgres`
 - Attachments: `CHANGE_TO_COMPOSE_DATA_PATH/ownkeep/attachments`
-- Keep Takeout import stages under that attachments volume (`.imports`) unless
-  you set `OWNKEEP_TAKEOUT_IMPORT_STAGING_ROOT`
 
 ### OMV troubleshooting
 
@@ -265,11 +263,6 @@ curl -i -X POST http://localhost:7001/api/auth/login \
 
 If `curl` succeeds but the browser fails, check DevTools → Network for
 `POST /api/auth/login`. An external reverse proxy must forward `/api` (not only `/`).
-
-**Large Keep Takeout ZIPs**
-
-Raise the servlet multipart limit above the default 25 MiB and set
-`OWNKEEP_IMPORT_MAX_UPLOAD_SIZE` accordingly.
 
 ---
 
@@ -345,17 +338,6 @@ are required.
 
 GCS auth uses Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`
 or the runtime service account).
-
-### Google Keep Takeout import
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OWNKEEP_IMPORT_MAX_UPLOAD_SIZE` | `104857600` (100 MiB) | Max Takeout ZIP size (also capped by servlet multipart limits) |
-| `OWNKEEP_IMPORT_MAX_ENTRIES` | `5000` | Max entries in a Takeout ZIP |
-| `OWNKEEP_IMPORT_MAX_ENTRY_SIZE` | `52428800` (50 MiB) | Max single ZIP entry size |
-| `OWNKEEP_IMPORT_MAX_UNCOMPRESSED_SIZE` | `524288000` (500 MiB) | Max total uncompressed ZIP size |
-| `OWNKEEP_IMPORT_MAX_WARNINGS` | `100` | Max stored import warnings |
-| `OWNKEEP_TAKEOUT_IMPORT_STAGING_ROOT` | `<attachment-storage-root>/.imports` | Optional override for ZIP extraction staging |
 
 ### Runtime / image
 

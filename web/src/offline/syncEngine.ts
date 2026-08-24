@@ -16,6 +16,7 @@ export type SyncEngineListener = (status: SyncStatus) => void
 
 export class SyncEngine {
   private running = false
+  private paused = false
   private timer: number | null = null
   private listeners = new Set<SyncEngineListener>()
   private lastError: string | null = null
@@ -44,21 +45,33 @@ export class SyncEngine {
     if (this.running) return
     this.running = true
     const kick = () => void this.sync()
-    window.addEventListener('online', kick)
-    document.addEventListener('visibilitychange', () => {
+    const onVisible = () => {
       if (document.visibilityState === 'visible') kick()
-    })
+    }
+    window.addEventListener('online', kick)
+    document.addEventListener('visibilitychange', onVisible)
     this.timer = window.setInterval(kick, 30_000)
     kick()
     ;(this as { _cleanup?: () => void })._cleanup = () => {
       window.removeEventListener('online', kick)
+      document.removeEventListener('visibilitychange', onVisible)
       if (this.timer != null) window.clearInterval(this.timer)
     }
   }
 
   stop() {
     this.running = false
+    this.paused = false
     ;(this as { _cleanup?: () => void })._cleanup?.()
+  }
+
+  pause() {
+    this.paused = true
+  }
+
+  resume() {
+    this.paused = false
+    this.kick()
   }
 
   kick() {
@@ -85,7 +98,7 @@ export class SyncEngine {
   }
 
   async sync(): Promise<void> {
-    if (!this.running || !navigator.onLine) {
+    if (!this.running || this.paused || !navigator.onLine) {
       await this.emit()
       return
     }

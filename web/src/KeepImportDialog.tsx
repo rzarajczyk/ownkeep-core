@@ -1,26 +1,38 @@
 import { LoaderCircle, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { importKeepZip } from './keepImport/clientImport'
+import { runKeepImport, type KeepImportMode, type KeepImportProgress } from './keepImport/runImport'
+import type { KeepImportResult } from './keepImport/clientImport'
+import type { LocalRepository } from './offline/repository'
 import { useVault } from './vault/VaultContext'
 import { errorMessage } from './utils'
 
 interface KeepImportDialogProps {
   onClose: () => void
   onCompleted: () => Promise<void>
+  repo: LocalRepository
+  pauseSync: () => void
+  resumeSync: () => void
 }
 
-export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps) {
+export function KeepImportDialog({
+  onClose,
+  onCompleted,
+  repo,
+  pauseSync,
+  resumeSync,
+}: KeepImportDialogProps) {
   const { t } = useTranslation()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const { vaultKey } = useVault()
+  const [step, setStep] = useState<'mode' | 'file'>('mode')
+  const [mode, setMode] = useState<KeepImportMode>('add')
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState('')
+  const [replaceConfirmed, setReplaceConfirmed] = useState(false)
   const [error, setError] = useState('')
-  const [progress, setProgress] = useState<number | null>(null)
-  const [result, setResult] = useState<{ imported: number; skipped: number; warnings: string[] } | null>(
-    null,
-  )
+  const [progress, setProgress] = useState<KeepImportProgress | null>(null)
+  const [result, setResult] = useState<KeepImportResult | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -49,11 +61,23 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
       setFileError(t('import.invalidFile'))
       return
     }
+    if (mode === 'replace' && !replaceConfirmed) {
+      setError(t('import.replaceConfirmRequired'))
+      return
+    }
     setFileError('')
     setBusy(true)
-    setProgress(0)
+    setProgress({ phase: mode === 'replace' ? 'clearing' : 'importing', percent: 0 })
     try {
-      const next = await importKeepZip(file, vaultKey, setProgress)
+      const next = await runKeepImport({
+        file,
+        vaultKey,
+        mode,
+        repo,
+        pauseSync,
+        resumeSync,
+        onProgress: setProgress,
+      })
       setResult(next)
       await onCompleted()
     } catch (reason) {
@@ -91,7 +115,55 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
           </button>
         </header>
 
-        {!result ? (
+        {!result && step === 'mode' ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              setStep('file')
+            }}
+          >
+            <p>{t('import.mode.question')}</p>
+            <fieldset className="import-modes">
+              <legend className="sr-only">{t('import.mode.question')}</legend>
+              <label className={`import-mode${mode === 'replace' ? ' selected' : ''}`}>
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="replace"
+                  checked={mode === 'replace'}
+                  onChange={() => setMode('replace')}
+                />
+                <span>
+                  <strong>{t('import.mode.replace.title')}</strong>
+                  <span>{t('import.mode.replace.description')}</span>
+                </span>
+              </label>
+              <label className={`import-mode${mode === 'add' ? ' selected' : ''}`}>
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="add"
+                  checked={mode === 'add'}
+                  onChange={() => setMode('add')}
+                />
+                <span>
+                  <strong>{t('import.mode.add.title')}</strong>
+                  <span>{t('import.mode.add.description')}</span>
+                </span>
+              </label>
+            </fieldset>
+            <div className="import-actions">
+              <button type="button" className="secondary-button" onClick={close}>
+                {t('import.cancel')}
+              </button>
+              <button type="submit" className="primary-button">
+                {t('import.continue')}
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {!result && step === 'file' ? (
           <form onSubmit={(event) => void submit(event)}>
             <p>{t('import.description')}</p>
             <label className="import-file">
@@ -117,14 +189,25 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
                 {fileError}
               </p>
             ) : null}
+            {mode === 'replace' ? (
+              <label className="import-confirm">
+                <input
+                  type="checkbox"
+                  checked={replaceConfirmed}
+                  disabled={busy}
+                  onChange={(event) => setReplaceConfirmed(event.target.checked)}
+                />
+                <span>{t('import.replaceConfirm')}</span>
+              </label>
+            ) : null}
             {progress !== null ? (
               <div className="import-progress" role="status">
                 <span>
                   <LoaderCircle className="spin" aria-hidden="true" />{' '}
-                  {t('import.progress', { progress })}
+                  {t(`import.progress.${progress.phase}`, { progress: progress.percent })}
                 </span>
-                <progress max="100" value={progress}>
-                  {progress}%
+                <progress max="100" value={progress.percent}>
+                  {progress.percent}%
                 </progress>
               </div>
             ) : null}
@@ -134,8 +217,17 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
               </p>
             ) : null}
             <div className="import-actions">
-              <button type="button" className="secondary-button" onClick={close} disabled={busy}>
-                {t('import.cancel')}
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  if (busy) return
+                  setError('')
+                  setStep('mode')
+                }}
+                disabled={busy}
+              >
+                {t('import.back')}
               </button>
               <button type="submit" className="primary-button" disabled={busy}>
                 {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
@@ -143,7 +235,9 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
               </button>
             </div>
           </form>
-        ) : (
+        ) : null}
+
+        {result ? (
           <div className="import-job" aria-live="polite">
             <div className="import-result completed">
               <strong>
@@ -169,7 +263,7 @@ export function KeepImportDialog({ onClose, onCompleted }: KeepImportDialogProps
               </button>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </dialog>
   )

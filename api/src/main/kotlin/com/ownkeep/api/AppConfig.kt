@@ -35,7 +35,6 @@ data class OwnKeepProperties(
     var mail: MailProperties = MailProperties(),
     var spaStaticDir: Path? = null,
     var attachment: AttachmentProperties = AttachmentProperties(),
-    var takeoutImport: TakeoutImportProperties = TakeoutImportProperties(),
 ) {
     data class LoginRateLimitProperties(
         /** Max login attempts per client IP within [window]. */
@@ -73,15 +72,6 @@ data class OwnKeepProperties(
     data class GcsAttachmentProperties(
         var bucket: String = "",
         var prefix: String = "",
-    )
-
-    data class TakeoutImportProperties(
-        var stagingRoot: Path? = null,
-        var maxUploadSize: Long = 100L * 1024 * 1024,
-        var maxEntries: Int = 5_000,
-        var maxEntrySize: Long = 50L * 1024 * 1024,
-        var maxUncompressedSize: Long = 500L * 1024 * 1024,
-        var maxWarnings: Int = 100,
     )
 }
 

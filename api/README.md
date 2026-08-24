@@ -50,13 +50,6 @@ Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
 - `OWNKEEP_ATTACHMENT_MAX_FILE_SIZE` — application-level upload limit in bytes, default 25 MiB
 - `OWNKEEP_MULTIPART_MAX_FILE_SIZE` — servlet upload limit, default `25MB`
 - `OWNKEEP_ATTACHMENT_PER_USER_QUOTA` — per-user attachment quota in bytes, default 1 GiB
-- `OWNKEEP_IMPORT_MAX_UPLOAD_SIZE` — max Google Keep Takeout ZIP size in bytes, default 100 MiB (effective limit is also capped by the servlet multipart max file size)
-- `OWNKEEP_IMPORT_MAX_ENTRIES` — max entries in a Takeout ZIP, default `5000`
-- `OWNKEEP_IMPORT_MAX_ENTRY_SIZE` — max single ZIP entry size in bytes, default 50 MiB
-- `OWNKEEP_IMPORT_MAX_UNCOMPRESSED_SIZE` — max total uncompressed ZIP size in bytes, default 500 MiB
-- `OWNKEEP_IMPORT_MAX_WARNINGS` — max stored import warnings, default `100`
-
-Takeout ZIP extraction stages under `<attachment-storage-root>/.imports` by default. To override, set `ownkeep.takeout-import.staging-root` (for example `OWNKEEP_TAKEOUT_IMPORT_STAGING_ROOT`).
 
 ## Container
 
