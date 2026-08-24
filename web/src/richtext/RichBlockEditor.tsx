@@ -2,7 +2,9 @@ import type { Editor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { useEffect, useRef } from 'react'
 import { i18n } from '../i18n'
+import { useOnline } from '../offline/useOnline'
 import type { Attachment } from '../types'
+import { useAttachmentImageUrls } from '../useAttachmentImageUrls'
 import { blockExtensions } from './extensions'
 import {
   getEditorMarkdown,
@@ -13,6 +15,7 @@ import {
 
 type RichBlockEditorProps = {
   value: string
+  noteId?: string
   attachments?: Attachment[]
   placeholder?: string
   'aria-label'?: string
@@ -24,6 +27,7 @@ type RichBlockEditorProps = {
 
 export function RichBlockEditor({
   value,
+  noteId,
   attachments = [],
   placeholder = i18n.t('editor.contentPlaceholder'),
   'aria-label': ariaLabel = i18n.t('editor.contentAria'),
@@ -37,6 +41,9 @@ export function RichBlockEditor({
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const lastEmitted = useRef(value)
+  const hostRef = useRef<HTMLDivElement>(null)
+  const online = useOnline()
+  useAttachmentImageUrls(hostRef, attachments, value, noteId, online)
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -85,5 +92,9 @@ export function RichBlockEditor({
     onPendingOffsetConsumed?.()
   }, [editor, onPendingOffsetConsumed, pendingOffset])
 
-  return <EditorContent editor={editor} className="rich-block-editor-host" />
+  return (
+    <div ref={hostRef} className="rich-block-editor-host">
+      <EditorContent editor={editor} />
+    </div>
+  )
 }

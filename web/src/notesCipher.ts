@@ -1,6 +1,7 @@
 import {
   decryptAttachmentMeta,
-  inferAttachmentKind,
+  fieldsFromAttachmentMeta,
+  resolveAttachmentThumbnail,
 } from './crypto/attachmentCodec'
 import { decryptLabelName } from './crypto/labelCodec'
 import { generateNoteKey } from './crypto/keys'
@@ -59,11 +60,17 @@ export async function fromWire(
   const attachments: Attachment[] = []
   for (const att of wire.attachments) {
     const meta = await decryptAttachmentMeta(noteKey, att.id, att.metaCiphertext)
+    const fields = fieldsFromAttachmentMeta(meta)
+    const thumbnail = await resolveAttachmentThumbnail(
+      noteKey,
+      att.id,
+      att.thumbnailCiphertext,
+      fields.thumbnail,
+    )
     attachments.push({
       id: att.id,
-      kind: meta.kind ?? inferAttachmentKind(meta.mimeType),
-      originalFilename: meta.originalFilename,
-      mimeType: meta.mimeType,
+      ...fields,
+      ...(thumbnail ? { thumbnail } : {}),
       sizeBytes: att.sizeBytes,
       createdAt: att.createdAt,
       url: att.url,

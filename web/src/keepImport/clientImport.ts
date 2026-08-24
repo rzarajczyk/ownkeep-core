@@ -2,8 +2,10 @@ import { unzipSync } from 'fflate'
 import {
   encryptAttachmentBytes,
   encryptAttachmentMeta,
-  inferAttachmentKind,
+  encryptOptionalThumbnailPart,
 } from '../crypto/attachmentCodec'
+import { bytesToBlob } from '../crypto/aead'
+import { prepareAttachmentPayload } from '../crypto/imageMime'
 import { encryptLabelName } from '../crypto/labelCodec'
 import { generateNoteKey } from '../crypto/keys'
 import { buildNotePayload, encryptNotePayload, wrapNoteKey } from '../crypto/noteCodec'
@@ -129,27 +131,24 @@ export async function importKeepZip(
         }
         const fileBytes = entries[candidate]!
         const attachmentId = crypto.randomUUID()
-        const filename = basename(relative)
-        const mimeType = filename.match(/\.(png|jpe?g|gif|webp|avif|bmp)$/i)
-          ? `image/${filename.split('.').pop()!.toLowerCase().replace('jpg', 'jpeg')}`
-          : 'application/octet-stream'
+        const prepared = await prepareAttachmentPayload(
+          basename(relative),
+          'application/octet-stream',
+          fileBytes,
+        )
         const metaCiphertext = await encryptAttachmentMeta(noteKey, attachmentId, {
-          originalFilename: filename,
-          mimeType,
-          kind: inferAttachmentKind(mimeType),
+          originalFilename: prepared.originalFilename,
+          mimeType: prepared.mimeType,
+          kind: prepared.kind,
         })
-        const cipherBytes = await encryptAttachmentBytes(noteKey, attachmentId, fileBytes)
+        const cipherBytes = await encryptAttachmentBytes(noteKey, attachmentId, prepared.bytes)
         await api.uploadAttachment(
           noteId,
-          new Blob([
-            cipherBytes.buffer.slice(
-              cipherBytes.byteOffset,
-              cipherBytes.byteOffset + cipherBytes.byteLength,
-            ) as ArrayBuffer,
-          ]),
+          bytesToBlob(cipherBytes),
           metaCiphertext,
           attachmentId,
           () => undefined,
+          await encryptOptionalThumbnailPart(noteKey, attachmentId, prepared.thumbnail),
         )
       }
       imported += 1

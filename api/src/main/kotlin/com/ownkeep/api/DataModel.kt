@@ -170,6 +170,8 @@ class AttachmentEntity(
     var storagePath: String = "",
     @Column(name = "meta_ciphertext", nullable = false, columnDefinition = "bytea")
     var metaCiphertext: ByteArray = ByteArray(0),
+    @Column(name = "thumbnail_ciphertext", columnDefinition = "bytea")
+    var thumbnailCiphertext: ByteArray? = null,
     @Column(name = "size_bytes", nullable = false)
     var sizeBytes: Long = 0,
     @Column(name = "created_at", nullable = false)

@@ -67,6 +67,7 @@ data class AttachmentResponse(
     val sizeBytes: Long,
     val createdAt: Instant,
     val url: String,
+    val thumbnailCiphertext: String? = null,
 )
 
 data class NoteResponse(
@@ -461,6 +462,7 @@ class NoteService(
                 sizeBytes = it.sizeBytes,
                 createdAt = it.createdAt,
                 url = "/attachments/${it.id}",
+                thumbnailCiphertext = it.thumbnailCiphertext?.let(CryptoSupport::encode),
             )
         }
         return NoteResponse(

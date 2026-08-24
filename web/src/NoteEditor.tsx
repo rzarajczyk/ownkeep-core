@@ -73,8 +73,12 @@ import {
   decryptAttachmentMeta,
   encryptAttachmentBytes,
   encryptAttachmentMeta,
-  inferAttachmentKind,
+  encryptOptionalThumbnailPart,
+  fieldsFromAttachmentMeta,
+  resolveAttachmentThumbnail,
 } from './crypto/attachmentCodec'
+import { bytesToBlob } from './crypto/aead'
+import { prepareAttachmentPayload } from './crypto/imageMime'
 import { buildNotePayload, encryptNotePayload, wrapNoteKey } from './crypto/noteCodec'
 import { decryptLabelName } from './crypto/labelCodec'
 import type { RevisionPlainPayload } from './crypto/revisionCodec'
@@ -1325,33 +1329,42 @@ export function NoteEditor({
       const noteKey = getCachedNoteKey(draft.id)
       if (!noteKey) throw new Error(t('notes.attachment.noteKeyUnavailableDetail'))
       const attachmentId = createId()
-      const mimeType = file.type || 'application/octet-stream'
-      const kind = inferAttachmentKind(mimeType)
-      const plainBytes = new Uint8Array(await file.arrayBuffer())
-      const cipherBytes = await encryptAttachmentBytes(noteKey, attachmentId, plainBytes)
+      const prepared = await prepareAttachmentPayload(
+        file.name,
+        file.type || 'application/octet-stream',
+        new Uint8Array(await file.arrayBuffer()),
+      )
+      const cipherBytes = await encryptAttachmentBytes(noteKey, attachmentId, prepared.bytes)
       const metaCiphertext = await encryptAttachmentMeta(noteKey, attachmentId, {
-        originalFilename: file.name,
-        mimeType,
-        kind,
+        originalFilename: prepared.originalFilename,
+        mimeType: prepared.mimeType,
+        kind: prepared.kind,
       })
+      const thumbnailCiphertext = await encryptOptionalThumbnailPart(
+        noteKey,
+        attachmentId,
+        prepared.thumbnail,
+      )
       const wire = await api.uploadAttachment(
         draft.id,
-        new Blob([
-          cipherBytes.buffer.slice(
-            cipherBytes.byteOffset,
-            cipherBytes.byteOffset + cipherBytes.byteLength,
-          ) as ArrayBuffer,
-        ]),
+        bytesToBlob(cipherBytes),
         metaCiphertext,
         attachmentId,
         setUploadProgress,
+        thumbnailCiphertext,
       )
       const meta = await decryptAttachmentMeta(noteKey, wire.id, wire.metaCiphertext)
+      const fields = fieldsFromAttachmentMeta(meta)
+      const thumbnail = await resolveAttachmentThumbnail(
+        noteKey,
+        wire.id,
+        wire.thumbnailCiphertext,
+        prepared.thumbnail ?? fields.thumbnail,
+      )
       const attachment: Attachment = {
         id: wire.id,
-        kind: meta.kind ?? inferAttachmentKind(meta.mimeType),
-        originalFilename: meta.originalFilename,
-        mimeType: meta.mimeType,
+        ...fields,
+        ...(thumbnail ? { thumbnail } : {}),
         sizeBytes: wire.sizeBytes,
         createdAt: wire.createdAt,
         url: wire.url,
@@ -1781,6 +1794,7 @@ export function NoteEditor({
             ) : textEditMode === 'rich' ? (
               <RichBlockEditor
                 value={draft.contentRaw}
+                noteId={draft.id}
                 attachments={draft.attachments}
                 placeholder={t('editor.contentPlaceholder')}
                 aria-label={t('editor.contentAria')}

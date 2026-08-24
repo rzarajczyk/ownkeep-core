@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { decryptAttachmentBytes } from './crypto/attachmentCodec'
+import { bytesToBlob } from './crypto/aead'
+import { attachmentPreviewBlob, imageBlobForDisplay } from './crypto/imageMime'
 import { i18n } from './i18n'
 import { getCachedNoteKey } from './notesCipher'
 import type { Attachment } from './types'
@@ -17,7 +19,7 @@ interface AttachmentViewProps {
   onDelete?: (id: string) => Promise<void>
 }
 
-async function decryptAttachmentBlob(
+async function decryptOriginalBlob(
   noteId: string,
   attachment: Attachment,
   signal?: AbortSignal,
@@ -30,9 +32,8 @@ async function decryptAttachmentBlob(
     attachment.id,
     new Uint8Array(cipher),
   )
-  return new Blob([plain.buffer.slice(plain.byteOffset, plain.byteOffset + plain.byteLength) as ArrayBuffer], {
-    type: attachment.mimeType,
-  })
+  if (attachment.kind === 'IMAGE') return imageBlobForDisplay(plain, attachment.mimeType)
+  return bytesToBlob(plain, attachment.mimeType || 'application/octet-stream')
 }
 
 export function AttachmentView({
@@ -43,22 +44,33 @@ export function AttachmentView({
   onDelete,
 }: AttachmentViewProps) {
   const { t } = useTranslation()
+  const preview = attachmentPreviewBlob(attachment)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(attachment.kind === 'IMAGE' && online)
+  const [loading, setLoading] = useState(attachment.kind === 'IMAGE' && !preview && online)
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (attachment.kind !== 'IMAGE') return
+    const thumbnail = attachmentPreviewBlob(attachment)
+    if (thumbnail) {
+      const url = URL.createObjectURL(thumbnail)
+      setObjectUrl(url)
+      setLoading(false)
+      setError('')
+      return () => URL.revokeObjectURL(url)
+    }
     if (!online) {
       setLoading(false)
+      setObjectUrl(null)
       setError(t('notes.offline.attachmentsRequireConnection'))
       return
     }
     const controller = new AbortController()
     let url: string | null = null
-    decryptAttachmentBlob(noteId, attachment, controller.signal)
+    setLoading(true)
+    decryptOriginalBlob(noteId, attachment, controller.signal)
       .then((blob) => {
         url = URL.createObjectURL(blob)
         setObjectUrl(url)
@@ -84,16 +96,14 @@ export function AttachmentView({
     setError('')
     setDownloading(true)
     try {
-      const href =
-        objectUrl ??
-        URL.createObjectURL(await decryptAttachmentBlob(noteId, attachment))
+      const href = URL.createObjectURL(await decryptOriginalBlob(noteId, attachment))
       const anchor = document.createElement('a')
       anchor.href = href
       anchor.download = attachment.originalFilename
       document.body.append(anchor)
       anchor.click()
       anchor.remove()
-      if (!objectUrl) URL.revokeObjectURL(href)
+      URL.revokeObjectURL(href)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -125,7 +135,11 @@ export function AttachmentView({
           </span>
         )}
         {objectUrl && (
-          <img src={objectUrl} alt={attachment.originalFilename} loading="lazy" />
+          <img
+            src={objectUrl}
+            alt={attachment.originalFilename}
+            onError={() => setError(t('notes.attachment.unsupportedImage'))}
+          />
         )}
         <div className="attachment-image-actions">
           <Tooltip label={downloadLabel}>
@@ -136,7 +150,7 @@ export function AttachmentView({
                 event.stopPropagation()
                 void download()
               }}
-              disabled={downloading || loading || !online}
+              disabled={downloading || !online}
               aria-label={downloadLabel}
             >
               {downloading ? <LoaderCircle className="spin" /> : <Download />}

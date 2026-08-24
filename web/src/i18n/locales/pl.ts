@@ -279,6 +279,8 @@ export default {
       noteKeyUnavailable: 'Klucz notatki jest niedostępny',
       noteKeyUnavailableDetail:
         'Klucz notatki jest niedostępny. Otwórz notatkę ponownie po odblokowaniu sejfu.',
+      unsupportedImage:
+        'Tego obrazu nie można wyświetlić na tym urządzeniu. Prześlij go ponownie, aby przekonwertować do obsługiwanego formatu.',
     },
     colors: {
       default: 'Domyślny',

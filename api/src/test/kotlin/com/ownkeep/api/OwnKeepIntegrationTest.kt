@@ -1182,6 +1182,32 @@ class OwnKeepIntegrationTest {
             .andExpect(jsonPath("$.code").value("quota_exceeded"))
     }
 
+    @Test
+    fun `attachment upload stores optional thumbnail ciphertext`() {
+        val aliceToken = login("alice@example.com", "alice-password")
+        initializeVault(aliceToken, 113)
+        val noteId = createEncryptedNote(aliceToken, 113)
+        val meta = b64(ByteArray(48) { 114 })
+        val thumb = ByteArray(48) { 115 }
+        val attachmentId = UUID.randomUUID()
+
+        mockMvc.perform(
+            multipart("/notes/$noteId/attachments")
+                .file(MockMultipartFile("file", "photo.bin", "application/octet-stream", ByteArray(16) { 9 }))
+                .file(MockMultipartFile("metaCiphertext", null, "text/plain", meta.toByteArray()))
+                .file(MockMultipartFile("attachmentId", null, "text/plain", attachmentId.toString().toByteArray()))
+                .file(MockMultipartFile("thumbnailCiphertext", "thumbnail.bin", "application/octet-stream", thumb))
+                .header("Authorization", "Bearer $aliceToken"),
+        )
+            .andExpect(status().isCreated)
+            .andExpect(jsonPath("$.id").value(attachmentId.toString()))
+            .andExpect(jsonPath("$.thumbnailCiphertext").value(b64(thumb)))
+
+        mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.attachments[0].thumbnailCiphertext").value(b64(thumb)))
+    }
+
     private fun login(email: String, password: String): String {
         val result = mockMvc.perform(
             post("/auth/login")

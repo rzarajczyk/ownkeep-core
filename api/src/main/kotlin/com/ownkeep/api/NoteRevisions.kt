@@ -408,6 +408,7 @@ class NoteRevisionService(
                 sizeBytes = it.sizeBytes,
                 createdAt = it.createdAt,
                 url = "/attachments/${it.id}",
+                thumbnailCiphertext = it.thumbnailCiphertext?.let(CryptoSupport::encode),
             )
         }
         return NoteResponse(

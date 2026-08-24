@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { randomBytes } from './crypto/aead'
-import { clearNoteKeyCache, fromWire, toWire } from './notesCipher'
+import { bytesToBase64, randomBytes } from './crypto/aead'
+import {
+  encryptAttachmentMeta,
+  encryptAttachmentThumbnail,
+} from './crypto/attachmentCodec'
+import { clearNoteKeyCache, fromWire, getCachedNoteKey, toWire } from './notesCipher'
 import type { EncryptedNoteWire } from './types'
 
 function asWire(
@@ -147,5 +151,60 @@ describe('notesCipher', () => {
     )
     clearNoteKeyCache()
     await expect(fromWire(asWire(noteId, write), randomBytes(32), new Map())).rejects.toThrow()
+  })
+
+  it('decrypts attachment thumbnails from a dedicated ciphertext field', async () => {
+    const vaultKey = randomBytes(32)
+    const noteId = crypto.randomUUID()
+    const write = await toWire(
+      noteId,
+      {
+        type: 'TEXT',
+        title: 'Photo',
+        contentRaw: 'See attachment',
+        items: [],
+        labelIds: [],
+        backgroundColor: 'default',
+        archived: false,
+        pinned: false,
+        version: 1,
+      },
+      vaultKey,
+    )
+    const noteKey = getCachedNoteKey(noteId)
+    expect(noteKey).toBeDefined()
+    const attachmentId = crypto.randomUUID()
+    const jpeg = Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)
+    const metaCiphertext = await encryptAttachmentMeta(noteKey!, attachmentId, {
+      originalFilename: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      kind: 'IMAGE',
+    })
+    const thumbnailCiphertext = bytesToBase64(
+      await encryptAttachmentThumbnail(noteKey!, attachmentId, jpeg),
+    )
+    const note = await fromWire(
+      {
+        ...asWire(noteId, write),
+        attachments: [
+          {
+            id: attachmentId,
+            metaCiphertext,
+            sizeBytes: 12,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            url: `/attachments/${attachmentId}`,
+            thumbnailCiphertext,
+          },
+        ],
+      },
+      vaultKey,
+      new Map(),
+    )
+    expect(note.attachments).toHaveLength(1)
+    expect(note.attachments[0]?.originalFilename).toBe('photo.jpg')
+    expect(note.attachments[0]?.thumbnail?.mimeType).toBe('image/jpeg')
+    expect(note.attachments[0]?.thumbnail && [...note.attachments[0].thumbnail.bytes]).toEqual([
+      ...jpeg,
+    ])
   })
 })

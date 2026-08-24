@@ -45,6 +45,7 @@ class AttachmentService(
         file: MultipartFile,
         metaCiphertextBase64: String,
         attachmentId: UUID? = null,
+        thumbnailCiphertext: ByteArray? = null,
     ): AttachmentResponse {
         val user = userRepository.findForUpdateById(userId)
             ?: throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User no longer exists")
@@ -57,6 +58,13 @@ class AttachmentService(
             minBytes = 28,
             maxBytes = 16_384,
         )
+        if (thumbnailCiphertext != null && (thumbnailCiphertext.size < 28 || thumbnailCiphertext.size > 96_000)) {
+            throw ApiException(
+                HttpStatus.BAD_REQUEST,
+                "invalid_ciphertext",
+                "thumbnailCiphertext must be between 28 and 96000 bytes",
+            )
+        }
         val declaredSize = file.size
         val maxSize = properties.attachment.maxFileSize
         if (declaredSize > maxSize) {
@@ -95,6 +103,7 @@ class AttachmentService(
                     noteId = noteId,
                     storagePath = relativePath,
                     metaCiphertext = metaCiphertext,
+                    thumbnailCiphertext = thumbnailCiphertext,
                     sizeBytes = actualSize,
                     createdAt = clock.instant(),
                 ),
@@ -160,6 +169,7 @@ class AttachmentService(
         sizeBytes = sizeBytes,
         createdAt = createdAt,
         url = "/attachments/$id",
+        thumbnailCiphertext = thumbnailCiphertext?.let(CryptoSupport::encode),
     )
 }
 
@@ -172,6 +182,7 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         @RequestPart("file") file: MultipartFile,
         @RequestPart("metaCiphertext") metaCiphertext: String,
         @RequestPart(name = "attachmentId", required = false) attachmentId: String?,
+        @RequestPart(name = "thumbnailCiphertext", required = false) thumbnailCiphertext: MultipartFile?,
     ): ResponseEntity<AttachmentResponse> {
         val principal = authentication.principal as OwnKeepPrincipal
         val parsedId = attachmentId?.let {
@@ -181,8 +192,9 @@ class AttachmentController(private val attachmentService: AttachmentService) {
                 throw ApiException(HttpStatus.BAD_REQUEST, "invalid_attachment_id", "attachmentId must be a UUID")
             }
         }
+        val thumbBytes = thumbnailCiphertext?.takeUnless { it.isEmpty }?.bytes
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(attachmentService.upload(principal.userId, noteId, file, metaCiphertext, parsedId))
+            .body(attachmentService.upload(principal.userId, noteId, file, metaCiphertext, parsedId, thumbBytes))
     }
 
     @GetMapping("/attachments/{id}")

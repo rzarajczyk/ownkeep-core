@@ -60,6 +60,11 @@ export interface ChecklistItem {
   indent: number
 }
 
+export interface AttachmentThumbnail {
+  mimeType: string
+  bytes: Uint8Array
+}
+
 export interface Attachment {
   id: string
   kind: AttachmentKind
@@ -69,6 +74,8 @@ export interface Attachment {
   createdAt: string
   url: string
   metaCiphertext?: string
+  /** JPEG preview; stored as a separate encrypted blob, available offline. */
+  thumbnail?: AttachmentThumbnail
 }
 
 export interface Note {
@@ -132,6 +139,7 @@ export interface EncryptedAttachmentWire {
   sizeBytes: number
   createdAt: string
   url: string
+  thumbnailCiphertext?: string | null
 }
 
 export interface EncryptedLabelWire {

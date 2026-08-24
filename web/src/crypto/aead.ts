@@ -44,7 +44,7 @@ export async function encryptAesGcm(
       {
         name: 'AES-GCM',
         iv: asBufferSource(nonce),
-        additionalData: textEncoder.encode(aad),
+        additionalData: asBufferSource(textEncoder.encode(aad)),
       },
       key,
       asBufferSource(plaintext),
@@ -69,7 +69,7 @@ export async function decryptAesGcm(
     {
       name: 'AES-GCM',
       iv: asBufferSource(nonce),
-      additionalData: textEncoder.encode(aad),
+      additionalData: asBufferSource(textEncoder.encode(aad)),
     },
     key,
     asBufferSource(ciphertext),

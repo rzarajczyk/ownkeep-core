@@ -44,6 +44,9 @@ export function aadAttachment(attachmentId: string) {
 export function aadAttachmentMeta(attachmentId: string) {
   return `ok.attmeta.v1:${attachmentId}`
 }
+export function aadAttachmentThumb(attachmentId: string) {
+  return `ok.attthumb.v1:${attachmentId}`
+}
 export const AAD_LABEL = 'ok.label.v1'
 export function aadRevision(noteId: string, revisionId: string) {
   return `ok.revision.v1:${noteId}:${revisionId}`

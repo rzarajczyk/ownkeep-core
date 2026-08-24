@@ -264,6 +264,8 @@ export default {
       delete: 'Delete {{filename}}',
       noteKeyUnavailable: 'Note key is not available',
       noteKeyUnavailableDetail: 'Note key is not available. Reopen the note after unlocking.',
+      unsupportedImage:
+        "This image can't be displayed on this device. Re-upload it to convert it to a compatible format.",
     },
     colors: {
       default: 'Default',

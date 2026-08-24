@@ -364,6 +364,7 @@ class ApiClient {
     metaCiphertext: string,
     attachmentId: string,
     onProgress: (progress: number) => void,
+    thumbnailCiphertext?: Blob,
   ): Promise<EncryptedAttachmentWire> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
@@ -423,6 +424,9 @@ class ApiClient {
       body.append('file', file, 'attachment.bin')
       body.append('metaCiphertext', metaCiphertext)
       body.append('attachmentId', attachmentId)
+      if (thumbnailCiphertext) {
+        body.append('thumbnailCiphertext', thumbnailCiphertext, 'thumbnail.bin')
+      }
       xhr.send(body)
     })
   }
