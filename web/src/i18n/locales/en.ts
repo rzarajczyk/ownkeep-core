@@ -66,6 +66,7 @@ export default {
   settings: {
     nav: {
       security: 'Security',
+      password: 'Password',
       account: 'Account',
       language: 'Language',
     },
@@ -80,6 +81,40 @@ export default {
       submit: 'Update password',
       missingFields: 'Enter your current and new password.',
       mismatch: 'New password and confirmation do not match.',
+      vaultLock: {
+        title: 'Vault lock',
+        intro:
+          'Choose when this browser forgets the key that decrypts your notes. This setting applies only on this device.',
+        persistError:
+          'Could not keep the vault unlocked in this browser. The vault will lock again on the next page reload.',
+        lockOnReload: {
+          label: 'Lock the vault on page reload (recommended)',
+          description:
+            'Safest option. The vault key stays in memory only and is never written to browser storage. You will enter your password again after every refresh or new tab.',
+        },
+        untilLogout: {
+          label: 'Keep the vault unlocked until I log out',
+          summary:
+            'Convenient, but this browser will be able to decrypt your notes without your password until you log out.',
+          threatsTitle: 'Security threats',
+          warningLead:
+            'This option stores enough material in this browser to unlock your vault after a reload or a restart. OwnKeep never sends the vault key to the server, but anyone or anything that can use this browser profile can read your notes until you log out.',
+          threatPhysical:
+            'Physical access — Anyone who uses this computer (a family member, coworker, thief, or technician) can open OwnKeep and read your notes without knowing your password, including after you close the browser and come back later.',
+          threatXss:
+            'Page attacks (XSS) — If a script is ever injected into OwnKeep (a bug, a malicious extension, or compromised third-party code), it can decrypt your notes the same way the app does. With the default setting a refresh would have dropped the key from memory; with this setting the key is waiting in browser storage.',
+          threatExtensions:
+            'Browser extensions — A malicious or compromised extension that can run on this site can use the stored key, decrypt notes, and send them elsewhere.',
+          threatForensics:
+            'Malware and disk access — Malware, backup tools, or someone with access to this user profile can copy browser data. The key is wrapped so a casual file dump is not raw key bytes, but it is still usable on this machine.',
+          threatShared:
+            'Shared and public computers — Do not enable this on a library, hotel, school, or any computer you do not fully control. Log out when you leave; closing the tab is not enough.',
+          threatTabs:
+            'Other tabs — Logging out here locks other OwnKeep tabs in this browser. If you do not log out, every tab and every later visit stays unlocked.',
+          clearsOnLogout:
+            'Logging out, changing your password, or deleting your account removes the stored key from this browser. Session expiry alone does not: after you sign in again you will not be asked for the vault password until you log out.',
+        },
+      },
     },
     account: {
       dangerZoneEyebrow: 'Danger zone',

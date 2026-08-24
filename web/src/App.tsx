@@ -61,7 +61,7 @@ function AuthenticatedApp({
   onUserUpdated: (user: User) => void
 }) {
   const { t } = useTranslation()
-  const { isUnlocked, lock } = useVault()
+  const { isUnlocked, isRestoring, lock } = useVault()
 
   async function refreshUserIfOnline() {
     if (!navigator.onLine) return
@@ -73,6 +73,17 @@ function AuthenticatedApp({
       if (error instanceof ApiError && error.code === 'connection_failed') return
       throw error
     }
+  }
+
+  if (isRestoring) {
+    return (
+      <main className="boot-screen" role="status">
+        <span className="brand-mark">
+          <LoaderCircle className="spin" aria-hidden="true" />
+        </span>
+        <p>{t('vault.unlock.unlocking')}</p>
+      </main>
+    )
   }
 
   if (vaultNeedsSetup(session.user)) {
@@ -255,7 +266,7 @@ function App() {
   }
 
   return (
-    <VaultProvider>
+    <VaultProvider userId={session.user.id}>
       {session.recoveryRequired ? (
         <RestoredUserRecovery
           user={session.user}

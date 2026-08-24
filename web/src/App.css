@@ -2330,7 +2330,97 @@ svg {
   font-size: 1.05rem;
 }
 .settings-form h3 svg { width: 18px; height: 18px; }
-.settings-dialog { width: min(680px, calc(100vw - 30px)); }
+.settings-dialog {
+  width: min(760px, calc(100vw - 30px));
+  max-height: min(860px, calc(100dvh - 40px));
+  overflow: hidden;
+}
+.settings-dialog .import-panel {
+  max-height: min(860px, calc(100dvh - 40px));
+  overflow: auto;
+}
+.settings-security {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.settings-vault-lock {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.settings-vault-lock legend {
+  padding: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.settings-vault-lock > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.settings-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8f7f3;
+  cursor: pointer;
+}
+.settings-choice input {
+  margin-top: 3px;
+}
+.settings-choice.active {
+  border-color: var(--accent);
+  background: rgb(31 85 70 / 8%);
+}
+.settings-choice-warning.active {
+  border-color: #c98970;
+  background: #fcf8f6;
+}
+.settings-choice-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.settings-choice-text strong {
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.settings-choice-text span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.settings-vault-threats {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid #e2d2ca;
+  border-radius: 12px;
+  background: #fcf8f6;
+  color: #794338;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.settings-vault-threats p,
+.settings-vault-threats ul {
+  margin: 0;
+}
+.settings-vault-threats ul {
+  padding-left: 18px;
+}
+.settings-vault-threats li + li {
+  margin-top: 6px;
+}
 .settings-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 26px; }
 .settings-section-nav {
   display: grid;

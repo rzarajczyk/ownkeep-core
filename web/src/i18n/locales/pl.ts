@@ -66,6 +66,7 @@ export default {
   settings: {
     nav: {
       security: 'Bezpieczeństwo',
+      password: 'Hasło',
       account: 'Konto',
       language: 'Język',
     },
@@ -80,6 +81,40 @@ export default {
       submit: 'Zaktualizuj hasło',
       missingFields: 'Podaj obecne i nowe hasło.',
       mismatch: 'Nowe hasło i jego potwierdzenie nie są zgodne.',
+      vaultLock: {
+        title: 'Blokada sejfu',
+        intro:
+          'Wybierz, kiedy ta przeglądarka ma zapomnieć klucz odszyfrowujący notatki. To ustawienie dotyczy tylko tego urządzenia.',
+        persistError:
+          'Nie udało się utrzymać odblokowanego sejfu w tej przeglądarce. Sejf zablokuje się ponownie przy następnym odświeżeniu strony.',
+        lockOnReload: {
+          label: 'Blokuj sejf przy odświeżeniu strony (zalecane)',
+          description:
+            'Najbezpieczniejsza opcja. Klucz sejfu zostaje tylko w pamięci i nigdy nie jest zapisywany w przeglądarce. Po odświeżeniu lub otwarciu nowej karty ponownie podasz hasło.',
+        },
+        untilLogout: {
+          label: 'Nie blokuj sejfu, dopóki się nie wyloguję',
+          summary:
+            'Wygodne, ale ta przeglądarka będzie mogła odszyfrować notatki bez hasła, dopóki się nie wylogujesz.',
+          threatsTitle: 'Zagrożenia związane z tą opcją',
+          warningLead:
+            'Ta opcja zapisuje w tej przeglądarce materiał wystarczający do odblokowania sejfu po odświeżeniu strony lub ponownym uruchomieniu przeglądarki. OwnKeep nigdy nie wysyła klucza sejfu na serwer, ale każdy i wszystko, co może używać tego profilu przeglądarki, odczyta Twoje notatki, dopóki się nie wylogujesz.',
+          threatPhysical:
+            'Dostęp fizyczny — jeśli ktoś skorzysta z tego komputera (domownik, współpracownik, złodziej, serwisant), otworzy OwnKeep i przeczyta notatki bez znajomości hasła, także po zamknięciu przeglądarki i późniejszym powrocie.',
+          threatXss:
+            'Atak na stronę (XSS) — jeśli w OwnKeep zostanie wstrzyknięty skrypt (błąd, złośliwe rozszerzenie lub skompromitowany kod zewnętrzny), odszyfruje notatki tak samo jak aplikacja. Przy ustawieniu domyślnym odświeżenie strony usuwa klucz z pamięci; przy tej opcji klucz czeka w pamięci przeglądarki.',
+          threatExtensions:
+            'Rozszerzenia przeglądarki — złośliwe lub przejęte rozszerzenie działające na tej stronie może użyć zapisanego klucza, odszyfrować notatki i wysłać je gdzie indziej.',
+          threatForensics:
+            'Złośliwe oprogramowanie i dostęp do dysku — malware, narzędzia kopii zapasowej lub ktoś z dostępem do tego profilu użytkownika może skopiować dane przeglądarki. Klucz jest opakowany, więc zrzut plików to nie surowe bajty klucza, ale nadal da się go użyć na tym urządzeniu.',
+          threatShared:
+            'Współdzielone i publiczne komputery — nie włączaj tej opcji w bibliotece, hotelu, szkole ani na komputerze, którego nie kontrolujesz. Wyloguj się, gdy odchodzisz; samo zamknięcie karty nie wystarczy.',
+          threatTabs:
+            'Inne karty — wylogowanie tutaj zablokuje inne karty OwnKeep w tej przeglądarce. Jeśli się nie wylogujesz, każda karta i każda późniejsza wizyta pozostaną odblokowane.',
+          clearsOnLogout:
+            'Wylogowanie, zmiana hasła lub usunięcie konta usuwa zapisany klucz z tej przeglądarki. Samo wygaśnięcie sesji tego nie robi: po ponownym logowaniu hasło do sejfu nie będzie wymagane, dopóki się nie wylogujesz.',
+        },
+      },
     },
     account: {
       dangerZoneEyebrow: 'Strefa zagrożenia',

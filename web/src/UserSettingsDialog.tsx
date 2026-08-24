@@ -17,7 +17,7 @@ interface UserSettingsDialogProps {
   onAccountDeleted: () => void
 }
 
-type SettingsSection = 'security' | 'account' | 'language'
+type SettingsSection = 'security' | 'password' | 'account' | 'language'
 
 export function UserSettingsDialog({
   onClose,
@@ -26,7 +26,7 @@ export function UserSettingsDialog({
 }: UserSettingsDialogProps) {
   const { t } = useTranslation()
   const dialogRef = useRef<HTMLDialogElement>(null)
-  const { rewrapForNewPassword } = useVault()
+  const { rewrapForNewPassword, lockBehavior, setLockBehavior } = useVault()
   const currentId = useId()
   const nextId = useId()
   const confirmId = useId()
@@ -41,7 +41,9 @@ export function UserSettingsDialog({
     readLanguagePreference(),
   )
   const [error, setError] = useState('')
+  const [lockError, setLockError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [lockBusy, setLockBusy] = useState(false)
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -93,9 +95,29 @@ export function UserSettingsDialog({
     }
   }
 
+  function goToSection(next: SettingsSection) {
+    setSection(next)
+    setError('')
+    setLockError('')
+  }
+
   function changeLanguage(next: LanguagePreference) {
     setLanguagePreference(next)
     applyLanguagePreference(next)
+  }
+
+  async function changeLockBehavior(next: typeof lockBehavior) {
+    if (next === lockBehavior || lockBusy) return
+    setError('')
+    setLockError('')
+    setLockBusy(true)
+    try {
+      await setLockBehavior(next)
+    } catch {
+      setLockError(t('settings.security.vaultLock.persistError'))
+    } finally {
+      setLockBusy(false)
+    }
   }
 
   return (
@@ -130,21 +152,23 @@ export function UserSettingsDialog({
               type="button"
               className={section === 'security' ? 'active' : ''}
               aria-current={section === 'security' ? 'page' : undefined}
-              onClick={() => {
-                setSection('security')
-                setError('')
-              }}
+              onClick={() => goToSection('security')}
             >
               {t('settings.nav.security')}
             </button>
             <button
               type="button"
+              className={section === 'password' ? 'active' : ''}
+              aria-current={section === 'password' ? 'page' : undefined}
+              onClick={() => goToSection('password')}
+            >
+              {t('settings.nav.password')}
+            </button>
+            <button
+              type="button"
               className={section === 'language' ? 'active' : ''}
               aria-current={section === 'language' ? 'page' : undefined}
-              onClick={() => {
-                setSection('language')
-                setError('')
-              }}
+              onClick={() => goToSection('language')}
             >
               {t('settings.nav.language')}
             </button>
@@ -152,19 +176,85 @@ export function UserSettingsDialog({
               type="button"
               className={section === 'account' ? 'active' : ''}
               aria-current={section === 'account' ? 'page' : undefined}
-              onClick={() => {
-                setSection('account')
-                setError('')
-              }}
+              onClick={() => goToSection('account')}
             >
               {t('settings.nav.account')}
             </button>
           </nav>
 
           {section === 'security' ? (
-            <form onSubmit={(event) => void submitPasswordChange(event)} className="settings-form">
-              <p>{t('settings.security.description')}</p>
-              <label htmlFor={currentId}>{t('settings.security.currentPasswordLabel')}</label>
+            <div className="settings-security">
+              <fieldset className="settings-vault-lock">
+                <legend>{t('settings.security.vaultLock.title')}</legend>
+                <p>{t('settings.security.vaultLock.intro')}</p>
+                <label
+                  className={
+                    lockBehavior === 'lock-on-reload'
+                      ? 'settings-choice active'
+                      : 'settings-choice'
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="vault-lock-behavior"
+                    value="lock-on-reload"
+                    checked={lockBehavior === 'lock-on-reload'}
+                    disabled={lockBusy || submitting}
+                    onChange={() => void changeLockBehavior('lock-on-reload')}
+                  />
+                  <span className="settings-choice-text">
+                    <strong>{t('settings.security.vaultLock.lockOnReload.label')}</strong>
+                    <span>{t('settings.security.vaultLock.lockOnReload.description')}</span>
+                  </span>
+                </label>
+                <label
+                  className={
+                    lockBehavior === 'until-logout'
+                      ? 'settings-choice active settings-choice-warning'
+                      : 'settings-choice settings-choice-warning'
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="vault-lock-behavior"
+                    value="until-logout"
+                    checked={lockBehavior === 'until-logout'}
+                    disabled={lockBusy || submitting}
+                    onChange={() => void changeLockBehavior('until-logout')}
+                  />
+                  <span className="settings-choice-text">
+                    <strong>{t('settings.security.vaultLock.untilLogout.label')}</strong>
+                    <span>{t('settings.security.vaultLock.untilLogout.summary')}</span>
+                  </span>
+                </label>
+                {lockBehavior === 'until-logout' && (
+                  <div className="settings-vault-threats" role="note">
+                    <p>
+                      <strong>{t('settings.security.vaultLock.untilLogout.threatsTitle')}</strong>
+                    </p>
+                    <p>{t('settings.security.vaultLock.untilLogout.warningLead')}</p>
+                    <ul>
+                      <li>{t('settings.security.vaultLock.untilLogout.threatPhysical')}</li>
+                      <li>{t('settings.security.vaultLock.untilLogout.threatXss')}</li>
+                      <li>{t('settings.security.vaultLock.untilLogout.threatExtensions')}</li>
+                      <li>{t('settings.security.vaultLock.untilLogout.threatForensics')}</li>
+                      <li>{t('settings.security.vaultLock.untilLogout.threatShared')}</li>
+                      <li>{t('settings.security.vaultLock.untilLogout.threatTabs')}</li>
+                    </ul>
+                    <p>{t('settings.security.vaultLock.untilLogout.clearsOnLogout')}</p>
+                  </div>
+                )}
+                {lockError && (
+                  <p className="inline-error" role="alert">
+                    {lockError}
+                  </p>
+                )}
+              </fieldset>
+            </div>
+          ) : section === 'password' ? (
+              <form onSubmit={(event) => void submitPasswordChange(event)} className="settings-form">
+                <p>{t('settings.security.description')}</p>
+                <label htmlFor={currentId}>{t('settings.security.currentPasswordLabel')}</label>
               <input
                 id={currentId}
                 type="password"

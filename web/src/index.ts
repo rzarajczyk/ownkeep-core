@@ -20,6 +20,7 @@ export {
   useVault,
   vaultNeedsSetup,
 } from './vault/VaultContext'
+export type { VaultLockBehavior } from './vault/VaultContext'
 export {
   RestoredUserRecovery,
   VaultSetup,
