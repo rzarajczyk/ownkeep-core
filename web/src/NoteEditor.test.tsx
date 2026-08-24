@@ -20,6 +20,7 @@ vi.mock('./api', async (importOriginal) => {
       updateNoteRevisionLabel: vi.fn(),
       restoreNoteRevision: vi.fn(),
       listLabels: vi.fn(),
+      attachmentCipherBlob: vi.fn(),
     },
   }
 })
@@ -359,5 +360,43 @@ describe('NoteEditor', () => {
     )
     await waitFor(() => expect(onCanonical).toHaveBeenCalled())
     expect(api.updateNote).not.toHaveBeenCalled()
+  })
+
+  it('opens the export menu and downloads markdown', async () => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:export'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    render(
+      <NoteEditor
+        note={{ ...baseNote, title: 'Hello', contentRaw: 'Body' }}
+        startInEditMode
+        ensureLabelIds={async () => []}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText('Export'))
+    expect(screen.getByRole('menuitem', { name: 'Markdown (.md)', hidden: true })).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: 'Markdown with attachments (.md inside .zip)', hidden: true }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Print or PDF (.pdf)', hidden: true })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Markdown (.md)', hidden: true }))
+
+    await waitFor(() => expect(click).toHaveBeenCalled())
+    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob))
+    click.mockRestore()
   })
 })

@@ -68,6 +68,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
 import { HistoryToolButton, NoteChangeHistory } from './NoteChangeHistory'
+import { ExportMenu } from './export/ExportMenu'
 import {
   decryptAttachmentMeta,
   encryptAttachmentBytes,
@@ -437,6 +438,7 @@ export function NoteEditor({
   const [closing, setClosing] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyError, setHistoryError] = useState('')
+  const [exportError, setExportError] = useState('')
   const baselineEnvelopeRef = useRef<Awaited<ReturnType<typeof buildEncryptedRevision>> | null>(null)
   const baselinePromiseRef = useRef<Promise<void> | null>(null)
   const baselineDoneRef = useRef(false)
@@ -2008,6 +2010,11 @@ export function NoteEditor({
             </button>
           </div>
         )}
+        {exportError && (
+          <p className="save-error" role="alert">
+            {exportError}
+          </p>
+        )}
         {uploadError && (
           <p className="save-error" role="alert">
             {uploadError}
@@ -2118,6 +2125,7 @@ export function NoteEditor({
                 setHistoryOpen(true)
               }}
             />
+            <ExportMenu note={draft} online={online} onError={setExportError} />
           </div>
           <div className="editor-tools editor-tools-right">
             <Tooltip

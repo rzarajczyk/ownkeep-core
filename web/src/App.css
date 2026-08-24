@@ -2173,6 +2173,49 @@ svg {
 .color-swatch svg { width: 13px; height: 13px; }
 .color-swatch.selected { box-shadow: 0 0 0 2px var(--accent); }
 .color-swatch:hover { box-shadow: 0 0 0 2px rgb(31 85 70 / 35%); }
+.export-menu-wrap { position: relative; }
+.export-menu {
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  bottom: calc(100% + 8px);
+  display: grid;
+  gap: 2px;
+  min-width: 280px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.export-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.export-menu button:hover:not(:disabled) { background: #f3f2ec; }
+.export-menu button:disabled { color: #a4a8a4; cursor: default; }
+.export-menu svg { width: 15px; height: 15px; flex: none; }
+.export-menu > span,
+.export-menu .tooltip-anchor {
+  display: block;
+  width: 100%;
+}
+.export-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgb(65 67 63 / 18%);
+}
+.export-print-item { font-weight: 600; }
 .editor-tools { display: flex; align-items: center; gap: 2px; }
 .editor-tool-separator {
   width: 1px;
