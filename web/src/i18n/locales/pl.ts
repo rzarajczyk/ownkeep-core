@@ -380,6 +380,7 @@ export default {
   shell: {
     brand: 'Notatki OwnKeep',
     toggleNav: 'Przełącz nawigację',
+    resizeNav: 'Zmień szerokość nawigacji',
     search: {
       label: 'Szukaj notatek',
       placeholder: 'Szukaj notatek',

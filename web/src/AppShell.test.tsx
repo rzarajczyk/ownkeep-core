@@ -5,6 +5,14 @@ import { api } from './api'
 import { AppShell } from './AppShell'
 import { decryptLabels, fromWire, toWire } from './notesCipher'
 import { LocalRepository } from './offline/repository'
+import { SyncEngine } from './offline/syncEngine'
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STEP,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+} from './sidebarWidth'
 import type { Note, User, VaultInfo } from './types'
 
 const vault: VaultInfo = {
@@ -222,6 +230,24 @@ describe('pinned notes layout', () => {
     expect(await screen.findByText('Pinned idea')).toBeVisible()
   })
 
+  it('starts sync from the sidebar status instead of a header button', async () => {
+    const kick = vi.spyOn(SyncEngine.prototype, 'kick')
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+
+    const status = await screen.findByRole('button', { name: 'Sync notes' })
+    expect(status).toHaveClass('sidebar-status')
+    await waitFor(() => {
+      expect(status).toBeEnabled()
+      expect(status).toHaveTextContent('Synced')
+    })
+    expect(document.querySelector('.sync-button')).not.toBeInTheDocument()
+
+    kick.mockClear()
+    fireEvent.click(status)
+    expect(kick).toHaveBeenCalled()
+    kick.mockRestore()
+  })
+
   it('keeps healthy notes visible when one cached record cannot be decrypted', async () => {
     vi.mocked(fromWire).mockImplementation(async (wire: { id: string }) => {
       if (wire.id === 'corrupt') throw new Error('invalid ciphertext')
@@ -371,5 +397,107 @@ describe('pinned notes layout', () => {
     expect(screen.queryByText('Pinned idea')).not.toBeInTheDocument()
     expect(screen.queryByText('Grocery list')).not.toBeInTheDocument()
     expect(screen.getByText('Random thought')).toBeVisible()
+  })
+})
+
+describe('sidebar labels and width', () => {
+  const longLabel = 'Google Keep import 2026-08-24'
+
+  beforeEach(async () => {
+    indexedDB = new IDBFactory()
+    localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+    vi.mocked(api.notes).mockReset()
+    vi.mocked(api.listLabels).mockReset()
+    vi.mocked(decryptLabels).mockReset()
+    vi.mocked(fromWire).mockReset()
+    vi.mocked(fromWire).mockImplementation(
+      async (wire: { id: string }) => plaintextNotes.find((note) => note.id === wire.id)!,
+    )
+    vi.mocked(decryptLabels).mockResolvedValue(new Map([['label-keep', longLabel]]))
+    vi.mocked(api.listLabels).mockResolvedValue([
+      {
+        id: 'label-keep',
+        ciphertext: 'encrypted-keep',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ])
+    vi.mocked(api.notes).mockResolvedValue({
+      items: plaintextNotes.map((note) => ({
+        id: note.id,
+        type: note.type,
+        backgroundColor: note.backgroundColor,
+        archived: note.archived,
+        pinned: note.pinned,
+        wrappedNoteKey: 'wk',
+        ciphertext: 'ct',
+        labelIds: [],
+        attachments: [],
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        version: note.version,
+      })),
+      deletedIds: [],
+      nextUpdatedAfter: null,
+      nextAfterId: null,
+      hasMore: false,
+    })
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY)
+  })
+
+  it('renders long labels inside a truncating span', async () => {
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+
+    const labelButton = await screen.findByRole('button', { name: longLabel })
+    const labelText = labelButton.querySelector('.nav-label')
+    expect(labelText).toHaveTextContent(longLabel)
+    expect(labelButton).toHaveClass('nav-subitem')
+  })
+
+  it('resizes the sidebar with the keyboard and persists the width', async () => {
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    await screen.findByRole('button', { name: longLabel })
+
+    const handle = screen.getByRole('separator', { name: 'Resize navigation' })
+    const shell = document.querySelector('.app-shell')
+    expect(shell).toHaveStyle({ '--sidebar-width': `${SIDEBAR_WIDTH_DEFAULT}px` })
+
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(shell).toHaveStyle({ '--sidebar-width': `${SIDEBAR_WIDTH_DEFAULT + SIDEBAR_WIDTH_STEP}px` })
+    expect(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(
+      String(SIDEBAR_WIDTH_DEFAULT + SIDEBAR_WIDTH_STEP),
+    )
+
+    fireEvent.keyDown(handle, { key: 'Home' })
+    expect(shell).toHaveStyle({ '--sidebar-width': `${SIDEBAR_WIDTH_MIN}px` })
+    fireEvent.keyDown(handle, { key: 'End' })
+    expect(shell).toHaveStyle({ '--sidebar-width': `${SIDEBAR_WIDTH_MAX}px` })
+  })
+
+  it('drags the resize handle to change sidebar width', async () => {
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    await screen.findByRole('button', { name: longLabel })
+
+    const handle = screen.getByRole('separator', { name: 'Resize navigation' })
+    fireEvent.pointerDown(handle, { button: 0, clientX: SIDEBAR_WIDTH_DEFAULT })
+    fireEvent.pointerMove(window, { clientX: SIDEBAR_WIDTH_DEFAULT + 50 })
+    fireEvent.pointerUp(window)
+
+    expect(document.querySelector('.app-shell')).toHaveStyle({
+      '--sidebar-width': `${SIDEBAR_WIDTH_DEFAULT + 50}px`,
+    })
+    expect(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(
+      String(SIDEBAR_WIDTH_DEFAULT + 50),
+    )
+  })
+
+  it('restores a stored sidebar width', async () => {
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, '300')
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    await screen.findByRole('button', { name: longLabel })
+    expect(document.querySelector('.app-shell')).toHaveStyle({ '--sidebar-width': '300px' })
   })
 })

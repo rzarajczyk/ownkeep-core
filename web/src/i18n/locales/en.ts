@@ -365,6 +365,7 @@ export default {
   shell: {
     brand: 'OwnKeep notes',
     toggleNav: 'Toggle navigation',
+    resizeNav: 'Resize navigation',
     search: {
       label: 'Search notes',
       placeholder: 'Search notes',

@@ -15,7 +15,19 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, ApiError } from './api'
 import { BatchSelectionToolbar } from './BatchSelectionToolbar'
@@ -40,7 +52,14 @@ import { LocalRepository } from './offline/repository'
 import { SyncEngine, wireFromWrite } from './offline/syncEngine'
 import type { StoredNoteRecord, SyncStatus } from './offline/types'
 import { useOnline } from './offline/useOnline'
-import { Tooltip } from './Tooltip'
+import {
+  clampSidebarWidth,
+  readSidebarWidth,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STEP,
+  writeSidebarWidth,
+} from './sidebarWidth'
 import type { CreateNoteRevisionRequest, EncryptedNoteWrite, Note, User } from './types'
 import { errorMessage, noteToWrite } from './utils'
 import { useVault } from './vault/VaultContext'
@@ -127,6 +146,11 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [navOpen, setNavOpen] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth)
+  const [sidebarResizing, setSidebarResizing] = useState(false)
+  const sidebarWidthRef = useRef(sidebarWidth)
+  const sidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  sidebarWidthRef.current = sidebarWidth
   const [accountOpen, setAccountOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -724,6 +748,57 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const selectedNote = selectedId ? state.byId[selectedId] : null
   const waitingForVault = !vaultKey
 
+  const onSidebarResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    sidebarDragRef.current = { startX: event.clientX, startWidth: sidebarWidthRef.current }
+    setSidebarResizing(true)
+  }, [])
+
+  const onSidebarResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let next: number | null = null
+    if (event.key === 'ArrowLeft') next = sidebarWidthRef.current - SIDEBAR_WIDTH_STEP
+    else if (event.key === 'ArrowRight') next = sidebarWidthRef.current + SIDEBAR_WIDTH_STEP
+    else if (event.key === 'Home') next = SIDEBAR_WIDTH_MIN
+    else if (event.key === 'End') next = SIDEBAR_WIDTH_MAX
+    if (next == null) return
+    event.preventDefault()
+    const clamped = clampSidebarWidth(next)
+    setSidebarWidth(clamped)
+    writeSidebarWidth(clamped)
+  }, [])
+
+  useEffect(() => {
+    if (!sidebarResizing) return
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    function onMove(event: PointerEvent) {
+      const drag = sidebarDragRef.current
+      if (!drag) return
+      setSidebarWidth(clampSidebarWidth(drag.startWidth + event.clientX - drag.startX))
+    }
+
+    function onUp() {
+      sidebarDragRef.current = null
+      setSidebarResizing(false)
+      writeSidebarWidth(sidebarWidthRef.current)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [sidebarResizing])
+
   function renderNoteCard(note: Note) {
     return (
       <NoteCard
@@ -743,7 +818,10 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${sidebarResizing ? ' is-resizing-sidebar' : ''}`}
+      style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+    >
       <header className={`topbar${selectionMode ? ' has-selection' : ''}`}>
         {selectionMode && (
           <BatchSelectionToolbar
@@ -799,17 +877,6 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             </button>
           )}
         </div>
-        <Tooltip label={t('shell.sync')}>
-          <button
-            type="button"
-            className="icon-button sync-button"
-            onClick={() => engineRef.current?.kick()}
-            disabled={syncStatus.kind === 'syncing' || waitingForVault || !online}
-            aria-label={t('shell.sync')}
-          >
-            <RefreshCw className={syncStatus.kind === 'syncing' ? 'spin' : ''} />
-          </button>
-        </Tooltip>
         <div className="user-menu" ref={accountRef}>
           <button
             type="button"
@@ -869,6 +936,18 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       </header>
 
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
+        <div
+          className="sidebar-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('shell.resizeNav')}
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
+          aria-valuenow={sidebarWidth}
+          tabIndex={0}
+          onPointerDown={onSidebarResizePointerDown}
+          onKeyDown={onSidebarResizeKeyDown}
+        />
         <nav aria-label={t('shell.nav.notes')}>
           <div className="nav-group">
             <button
@@ -903,7 +982,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                       }}
                     >
                       <Tag aria-hidden="true" />
-                      <span>{label}</span>
+                      <span className="nav-label">{label}</span>
                     </button>
                   )
                 })}
@@ -968,7 +1047,14 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             <FileUp aria-hidden="true" /> {t('shell.account.importFromKeep')}
           </button>
         </div>
-        <p className="sidebar-status" title={syncStatus.lastError ?? undefined}>
+        <button
+          type="button"
+          className="sidebar-status"
+          onClick={() => engineRef.current?.kick()}
+          disabled={syncStatus.kind === 'syncing' || waitingForVault || !online}
+          aria-label={t('shell.sync')}
+          title={syncStatus.lastError ?? t('shell.sync')}
+        >
           <span
             className={
               syncStatus.kind === 'offline' || syncStatus.kind === 'error'
@@ -977,7 +1063,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             }
           />
           {syncStatusLabel(t, syncStatus)}
-        </p>
+        </button>
       </aside>
 
       <main className="workspace">
