@@ -1,23 +1,20 @@
 import { api } from '../api'
 import { decryptLabels } from '../notesCipher'
 import type { LocalRepository } from '../offline/repository'
+import { BACKUP_IMPORT_LABEL_PREFIX, uniqueImportLabelName } from '../keepImport/labels'
+import { wipeVaultContent } from '../keepImport/wipeVault'
 import type { ImportResult } from '../vaultImport/ingest'
 import type { VaultImportMode, VaultImportProgress } from '../vaultImport/types'
-import { importKeepZip } from './clientImport'
-import { uniqueImportLabelName } from './labels'
-import { wipeVaultContent } from './wipeVault'
+import { importBackupZip } from './importBackup'
 
-export type KeepImportMode = VaultImportMode
-export type KeepImportProgress = VaultImportProgress
-
-export async function runKeepImport(options: {
+export async function runBackupImport(options: {
   file: File
   vaultKey: Uint8Array
-  mode: KeepImportMode
+  mode: VaultImportMode
   repo: LocalRepository
   pauseSync: () => void
   resumeSync: () => void
-  onProgress: (progress: KeepImportProgress) => void
+  onProgress: (progress: VaultImportProgress) => void
 }): Promise<ImportResult> {
   const { file, vaultKey, mode, repo, pauseSync, resumeSync, onProgress } = options
   pauseSync()
@@ -32,8 +29,8 @@ export async function runKeepImport(options: {
       existingLabels.set(name.toLowerCase(), id)
     }
     const extraLabelNames =
-      mode === 'add' ? [uniqueImportLabelName(idToName.values())] : []
-    return await importKeepZip({
+      mode === 'add' ? [uniqueImportLabelName(idToName.values(), new Date(), BACKUP_IMPORT_LABEL_PREFIX)] : []
+    return await importBackupZip({
       file,
       vaultKey,
       repo,

@@ -179,6 +179,7 @@ export default {
       zipTooLarge: 'This ZIP is larger than {{max}} MiB. Choose a smaller Takeout archive.',
       unzipTooLarge:
         'This ZIP expands to more than {{max}} MiB uncompressed. Choose a smaller Takeout archive.',
+      ownkeepBackup: 'This is an OwnKeep backup. Use “Import from backup file” instead.',
     },
     result: {
       imported_one: 'Imported {{count}} note',
@@ -190,9 +191,89 @@ export default {
       missingAttachment: 'Missing attachment {{relative}} for {{path}}',
       skipped: 'Skipped {{path}}: {{error}}',
       unknownError: 'unknown error',
-      unknownColor: 'Unknown Keep color “{{color}}” for {{path}} was mapped to white',
+      unknownColor: 'Unknown color “{{color}}” for {{path}} was mapped to white',
     },
     toastCompleted: 'Google Keep import completed',
+  },
+
+  backup: {
+    export: {
+      eyebrow: 'Backup',
+      title: 'Backup notes',
+      description:
+        'Download a ZIP of all notes, labels, and attachments. The archive is built in your browser; the server never sees plaintext.',
+      warning:
+        'Backup files are unencrypted. Anyone with the ZIP can read your notes. Store it somewhere private.',
+      submit: 'Download backup',
+      submitting: 'Preparing backup…',
+      progress: 'Preparing backup… {{progress}}%',
+      done: 'Done',
+      cancel: 'Cancel',
+      vaultLocked: 'Unlock the vault before creating a backup.',
+      toastCompleted: 'Backup downloaded',
+      result: {
+        ready: 'Backup is ready.',
+        notes_one: '{{count}} note',
+        notes_other: '{{count}} notes',
+        warningsTitle: 'Warnings',
+      },
+      warnings: {
+        noteFailed: 'Could not export note {{id}}: {{error}}',
+        attachmentFailed: 'Could not export attachment {{name}} on note “{{title}}”: {{error}}',
+        unknownError: 'unknown error',
+      },
+    },
+    restore: {
+      eyebrow: 'Restore',
+      title: 'Import from backup file',
+      description:
+        'Notes are read from an OwnKeep backup ZIP in your browser, then encrypted before upload. The server never sees plaintext.',
+      plaintextWarning:
+        'Backup files are unencrypted. Only restore a ZIP you created and trust.',
+      chooseFile: 'OwnKeep backup ZIP',
+      cancel: 'Cancel',
+      back: 'Back',
+      continue: 'Continue',
+      submit: 'Import',
+      submitting: 'Importing…',
+      progress: {
+        clearing: 'Clearing vault… {{progress}}%',
+        importing: 'Importing… {{progress}}%',
+      },
+      done: 'Done',
+      vaultLocked: 'Unlock the vault before importing.',
+      noFileSelected: 'Choose an OwnKeep backup ZIP file.',
+      invalidFile: 'Choose a .zip file created by OwnKeep backup.',
+      replaceConfirm: 'I understand this deletes all current notes, labels, and attachments.',
+      replaceConfirmRequired: 'Confirm that you want to replace the vault before importing.',
+      mode: {
+        question: 'How would you like to import the notes?',
+        replace: {
+          title: 'Replace my vault',
+          description:
+            'Delete existing notes, labels and attachments and restore everything from the backup.',
+        },
+        add: {
+          title: 'Add notes to the current vault',
+          description: 'All imported notes will get an additional label so you can find them easily.',
+        },
+      },
+      errors: {
+        zipTooLarge: 'This ZIP is larger than {{max}} MiB. Choose a smaller backup.',
+        unzipTooLarge:
+          'This ZIP expands to more than {{max}} MiB uncompressed. Choose a smaller backup.',
+        invalidManifest:
+          'This ZIP is not an OwnKeep backup. Use “Import from Google Keep” for a Takeout archive.',
+        unsupportedVersion: 'This backup format version ({{version}}) is not supported.',
+      },
+      result: {
+        imported_one: 'Imported {{count}} note',
+        imported_other: 'Imported {{count}} notes',
+        skipped: ', skipped {{count}}',
+        warningsTitle: 'Warnings',
+      },
+      toastCompleted: 'Backup import completed',
+    },
   },
 
   notes: {
@@ -375,6 +456,8 @@ export default {
     account: {
       userSettings: 'User settings',
       manageUsers: 'Manage users',
+      backupNotes: 'Backup notes',
+      importFromBackup: 'Import from backup file',
       importFromKeep: 'Import from Google Keep',
     },
     nav: {

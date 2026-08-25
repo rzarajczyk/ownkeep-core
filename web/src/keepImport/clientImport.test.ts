@@ -264,4 +264,27 @@ describe('importKeepZip', () => {
       }),
     ).rejects.toThrow(/100 MiB/)
   })
+
+  it('rejects an OwnKeep backup zip', async () => {
+    const { packBackupZip, BACKUP_FORMAT, BACKUP_VERSION } = await import('../backup/format')
+    const bytes = packBackupZip({
+      manifest: { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: '2026-08-25T00:00:00.000Z' },
+      labels: [],
+      notes: [],
+      attachmentBytes: {},
+    })
+    const copy = new Uint8Array(bytes.byteLength)
+    copy.set(bytes)
+    const file = new File([copy], 'ownkeep-backup.zip', { type: 'application/zip' })
+    const repo = new LocalRepository(1)
+    await expect(
+      importKeepZip({
+        file,
+        vaultKey,
+        repo,
+        existingLabels: new Map(),
+        onProgress: () => undefined,
+      }),
+    ).rejects.toThrow(/OwnKeep backup/)
+  })
 })

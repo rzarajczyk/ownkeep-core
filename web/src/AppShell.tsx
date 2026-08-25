@@ -1,6 +1,7 @@
 import {
   Archive,
   ChevronDown,
+  Download,
   FileUp,
   KeyRound,
   LoaderCircle,
@@ -12,6 +13,7 @@ import {
   Settings,
   StickyNote,
   Tag,
+  Upload,
   Users,
   X,
 } from 'lucide-react'
@@ -35,6 +37,8 @@ import { encryptLabelName } from './crypto/labelCodec'
 import { NoteCard } from './NoteCard'
 import { NotesMasonry } from './NotesMasonry'
 import { KeepImportDialog } from './KeepImportDialog'
+import { BackupDialog } from './BackupDialog'
+import { BackupRestoreDialog } from './BackupRestoreDialog'
 import { UserManagementDialog } from './UserManagementDialog'
 import { UserSettingsDialog } from './UserSettingsDialog'
 import {
@@ -153,6 +157,8 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   sidebarWidthRef.current = sidebarWidth
   const [accountOpen, setAccountOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
+  const [restoreOpen, setRestoreOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [usersOpen, setUsersOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -915,6 +921,31 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                   <Users aria-hidden="true" /> {t('shell.account.manageUsers')}
                 </button>
               )}
+              <div className="account-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!online}
+                onClick={() => {
+                  if (!online) return
+                  setAccountOpen(false)
+                  setBackupOpen(true)
+                }}
+              >
+                <Download aria-hidden="true" /> {t('shell.account.backupNotes')}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!online}
+                onClick={() => {
+                  if (!online) return
+                  setAccountOpen(false)
+                  setRestoreOpen(true)
+                }}
+              >
+                <Upload aria-hidden="true" /> {t('shell.account.importFromBackup')}
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -1034,6 +1065,31 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               <Users aria-hidden="true" /> {t('shell.account.manageUsers')}
             </button>
           )}
+          <div className="account-menu-separator" role="separator" />
+          <button
+            type="button"
+            className="mobile-import"
+            disabled={!online}
+            onClick={() => {
+              if (!online) return
+              setNavOpen(false)
+              setBackupOpen(true)
+            }}
+          >
+            <Download aria-hidden="true" /> {t('shell.account.backupNotes')}
+          </button>
+          <button
+            type="button"
+            className="mobile-import"
+            disabled={!online}
+            onClick={() => {
+              if (!online) return
+              setNavOpen(false)
+              setRestoreOpen(true)
+            }}
+          >
+            <Upload aria-hidden="true" /> {t('shell.account.importFromBackup')}
+          </button>
           <button
             type="button"
             className="mobile-import"
@@ -1204,6 +1260,25 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             onDiscard={discardNote}
           />
         </Suspense>
+      )}
+      {backupOpen && online && (
+        <BackupDialog
+          repo={repoRef.current}
+          onClose={() => setBackupOpen(false)}
+          onCompleted={() => setToast(t('backup.export.toastCompleted'))}
+        />
+      )}
+      {restoreOpen && online && (
+        <BackupRestoreDialog
+          repo={repoRef.current}
+          pauseSync={() => engineRef.current?.pause()}
+          resumeSync={() => engineRef.current?.resume()}
+          onClose={() => setRestoreOpen(false)}
+          onCompleted={async () => {
+            await hydrateFromLocal()
+            setToast(t('backup.restore.toastCompleted'))
+          }}
+        />
       )}
       {importOpen && online && (
         <KeepImportDialog

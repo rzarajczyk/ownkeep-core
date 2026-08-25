@@ -403,6 +403,37 @@ describe('pinned notes layout', () => {
     expect(screen.queryByText('Grocery list')).not.toBeInTheDocument()
     expect(screen.getByText('Random thought')).toBeVisible()
   })
+
+  it('lists backup and import actions after user settings', async () => {
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    await screen.findByText('Pinned idea')
+    fireEvent.click(document.querySelector('.account-trigger')!)
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByRole('separator')).toBeInTheDocument()
+    const items = within(menu).getAllByRole('menuitem').map((item) => item.textContent?.replace(/\s+/g, ' ').trim())
+    expect(items).toEqual([
+      'User settings',
+      'Backup notes',
+      'Import from backup file',
+      'Import from Google Keep',
+    ])
+  })
+
+  it('keeps manage users with settings before backup actions', async () => {
+    render(<AppShell user={adminUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    await screen.findByText('Pinned idea')
+    fireEvent.click(document.querySelector('.account-trigger')!)
+    const items = within(screen.getByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent?.replace(/\s+/g, ' ').trim())
+    expect(items).toEqual([
+      'User settings',
+      'Manage users',
+      'Backup notes',
+      'Import from backup file',
+      'Import from Google Keep',
+    ])
+  })
 })
 
 describe('sidebar labels and width', () => {

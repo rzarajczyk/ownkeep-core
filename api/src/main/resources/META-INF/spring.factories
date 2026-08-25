@@ -1,0 +1,4 @@
+# Spring Boot 3.5 loads EnvironmentPostProcessor only from this file
+# (not META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor).
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.ownkeep.api.DatabaseUrlEnvironmentPostProcessor

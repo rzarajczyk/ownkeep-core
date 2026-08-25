@@ -1,23 +1,15 @@
-import { unzipSync } from 'fflate'
-import {
-  encryptAttachmentBytes,
-  encryptAttachmentMeta,
-  encryptOptionalThumbnailPart,
-} from '../crypto/attachmentCodec'
-import { bytesToBlob } from '../crypto/aead'
-import { prepareAttachmentPayload } from '../crypto/imageMime'
-import { encryptLabelName } from '../crypto/labelCodec'
-import { generateNoteKey } from '../crypto/keys'
-import { buildNotePayload, encryptNotePayload, wrapNoteKey } from '../crypto/noteCodec'
-import { api } from '../api'
 import { i18n } from '../i18n'
-import { setCachedNoteKey } from '../notesCipher'
-import { newMutationId, nowIso } from '../offline/lww'
+import { nowIso } from '../offline/lww'
 import type { LocalRepository } from '../offline/repository'
-import type { ChecklistItem, EncryptedNoteWire, NoteType } from '../types'
+import type { ChecklistItem, NoteType } from '../types'
 import { MAX_ITEM_INDENT } from '../utils'
+import { ingestPlainNotes, type ImportResult, type PlainImportNote } from '../vaultImport/ingest'
+import { unzipArchive } from '../vaultImport/unzip'
+import { looksLikeOwnKeepBackup } from '../backup/format'
 import { mapKeepColor } from './keepColors'
 import { MAX_UNCOMPRESSED_BYTES, MAX_UNCOMPRESSED_MIB, MAX_ZIP_BYTES, MAX_ZIP_MIB } from './limits'
+
+export type { ImportResult as KeepImportResult }
 
 interface KeepListItem {
   text?: string
@@ -38,12 +30,6 @@ interface KeepNoteJson {
   color?: string
   userEditedTimestampUsec?: number | string
   createdTimestampUsec?: number | string
-}
-
-export interface KeepImportResult {
-  imported: number
-  skipped: number
-  warnings: string[]
 }
 
 function decodeText(bytes: Uint8Array): string {
@@ -102,19 +88,6 @@ function flattenListItems(items: KeepListItem[], indent = 0): ChecklistItem[] {
   return out
 }
 
-function unzipKeepArchive(zipBytes: Uint8Array): Record<string, Uint8Array> {
-  let uncompressed = 0
-  return unzipSync(zipBytes, {
-    filter(entry) {
-      uncompressed += entry.originalSize
-      if (uncompressed > MAX_UNCOMPRESSED_BYTES) {
-        throw new Error(i18n.t('import.errors.unzipTooLarge', { max: MAX_UNCOMPRESSED_MIB }))
-      }
-      return !entry.name.includes('__MACOSX')
-    },
-  })
-}
-
 export async function importKeepZip(options: {
   file: File
   vaultKey: Uint8Array
@@ -122,50 +95,37 @@ export async function importKeepZip(options: {
   existingLabels: Map<string, string>
   extraLabelNames?: string[]
   onProgress: (percent: number) => void
-}): Promise<KeepImportResult> {
+}): Promise<ImportResult> {
   const { file, vaultKey, repo, extraLabelNames = [], onProgress } = options
   if (file.size > MAX_ZIP_BYTES) {
     throw new Error(i18n.t('import.errors.zipTooLarge', { max: MAX_ZIP_MIB }))
   }
   const zipBytes = new Uint8Array(await file.arrayBuffer())
-  const entries = unzipKeepArchive(zipBytes)
+  const entries = unzipArchive(
+    zipBytes,
+    MAX_UNCOMPRESSED_BYTES,
+    i18n.t('import.errors.unzipTooLarge', { max: MAX_UNCOMPRESSED_MIB }),
+  )
+  if (looksLikeOwnKeepBackup(entries)) {
+    throw new Error(i18n.t('import.errors.ownkeepBackup'))
+  }
   const warnings: string[] = []
   const noteFiles = Object.keys(entries).filter((name) => name.toLowerCase().endsWith('.json'))
-  const labelNameToId = new Map(options.existingLabels)
-  let imported = 0
+  const notes: PlainImportNote[] = []
   let skipped = 0
-  let processed = 0
-
-  async function ensureLabel(name: string): Promise<string> {
-    const key = name.toLowerCase()
-    const existing = labelNameToId.get(key)
-    if (existing) return existing
-    const ciphertext = await encryptLabelName(vaultKey, name)
-    const created = await api.createLabel(ciphertext)
-    labelNameToId.set(key, created.id)
-    return created.id
-  }
-
-  const extraLabelIds: string[] = []
-  for (const name of extraLabelNames) {
-    extraLabelIds.push(await ensureLabel(name))
-  }
 
   for (const path of noteFiles) {
-    processed += 1
-    onProgress(Math.round((processed / Math.max(noteFiles.length, 1)) * 100))
     try {
-      const raw = decodeText(entries[path]!)
-      const json: unknown = JSON.parse(raw)
+      const json: unknown = JSON.parse(decodeText(entries[path]!))
       if (!isKeepNote(json)) continue
       if (json.isTrashed) {
         skipped += 1
         continue
       }
-      const attachments = json.attachments ?? []
+      const keepAttachments = json.attachments ?? []
       const listItems = Array.isArray(json.listContent) ? flattenListItems(json.listContent) : []
       const hasText = Boolean(json.title?.trim() || json.textContent?.trim() || listItems.length)
-      if (!hasText && attachments.length === 0) {
+      if (!hasText && keepAttachments.length === 0) {
         skipped += 1
         continue
       }
@@ -174,42 +134,12 @@ export async function importKeepZip(options: {
       const labelNames = [...(json.labels ?? []), ...(json.labelIds ?? [])]
         .map((item) => item.name?.trim())
         .filter((name): name is string => Boolean(name))
-      const labelIds: string[] = [...extraLabelIds]
-      for (const name of labelNames) {
-        const id = await ensureLabel(name)
-        if (!labelIds.includes(id)) labelIds.push(id)
-      }
-      const noteId = crypto.randomUUID()
-      const noteKey = generateNoteKey()
-      setCachedNoteKey(noteId, noteKey)
       const mappedColor = mapKeepColor(json.color)
       if (mappedColor.unknown) {
         warnings.push(i18n.t('import.warnings.unknownColor', { color: json.color ?? '', path }))
       }
-      const payload = buildNotePayload({
-        title: json.title ?? '',
-        contentRaw: type === 'TEXT' ? (json.textContent ?? '') : '',
-        items: listItems,
-        labelIds,
-        type,
-      })
-      const clientUpdatedAt =
-        usecToIso(json.userEditedTimestampUsec) ?? usecToIso(json.createdTimestampUsec) ?? nowIso()
-      let wire: EncryptedNoteWire = await api.createNote({
-        id: noteId,
-        type,
-        backgroundColor: mappedColor.color,
-        archived: Boolean(json.isArchived),
-        pinned: Boolean(json.isPinned),
-        wrappedNoteKey: await wrapNoteKey(vaultKey, noteId, noteKey),
-        ciphertext: await encryptNotePayload(noteId, noteKey, payload),
-        labelIds,
-        clientUpdatedAt,
-        clientMutationId: newMutationId(),
-      })
-
-      let uploadedAttachment = false
-      for (const attachment of attachments) {
+      const attachments: PlainImportNote['attachments'] = []
+      for (const attachment of keepAttachments) {
         const relative = attachment.filePath || attachment.name
         if (!relative) continue
         const candidate =
@@ -220,34 +150,26 @@ export async function importKeepZip(options: {
           warnings.push(i18n.t('import.warnings.missingAttachment', { relative, path }))
           continue
         }
-        const fileBytes = entries[candidate]!
-        const attachmentId = crypto.randomUUID()
-        const prepared = await prepareAttachmentPayload(
-          basename(relative),
-          attachment.mimetype ?? 'application/octet-stream',
-          fileBytes,
-        )
-        const metaCiphertext = await encryptAttachmentMeta(noteKey, attachmentId, {
-          originalFilename: prepared.originalFilename,
-          mimeType: prepared.mimeType,
-          kind: prepared.kind,
+        attachments.push({
+          filename: basename(relative),
+          mimeType: attachment.mimetype ?? 'application/octet-stream',
+          bytes: entries[candidate]!,
         })
-        const cipherBytes = await encryptAttachmentBytes(noteKey, attachmentId, prepared.bytes)
-        await api.uploadAttachment(
-          noteId,
-          bytesToBlob(cipherBytes),
-          metaCiphertext,
-          attachmentId,
-          () => undefined,
-          await encryptOptionalThumbnailPart(noteKey, attachmentId, prepared.thumbnail),
-        )
-        uploadedAttachment = true
       }
-      if (uploadedAttachment) {
-        wire = await api.note(noteId)
-      }
-      await repo.putSyncedNotes([wire], [])
-      imported += 1
+      notes.push({
+        sourcePath: path,
+        type,
+        title: json.title ?? '',
+        contentRaw: type === 'TEXT' ? (json.textContent ?? '') : '',
+        items: listItems,
+        labelNames,
+        backgroundColor: mappedColor.color,
+        archived: Boolean(json.isArchived),
+        pinned: Boolean(json.isPinned),
+        clientUpdatedAt:
+          usecToIso(json.userEditedTimestampUsec) ?? usecToIso(json.createdTimestampUsec) ?? nowIso(),
+        attachments,
+      })
     } catch (error) {
       skipped += 1
       warnings.push(
@@ -259,5 +181,17 @@ export async function importKeepZip(options: {
     }
   }
 
-  return { imported, skipped, warnings }
+  const result = await ingestPlainNotes({
+    notes,
+    vaultKey,
+    repo,
+    existingLabels: options.existingLabels,
+    extraLabelNames,
+    onProgress,
+  })
+  return {
+    imported: result.imported,
+    skipped: result.skipped + skipped,
+    warnings: [...warnings, ...result.warnings],
+  }
 }

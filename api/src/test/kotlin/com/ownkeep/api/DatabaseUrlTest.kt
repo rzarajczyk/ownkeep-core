@@ -64,6 +64,14 @@ class DatabaseUrlTest {
     }
 
     @Test
+    fun `post processor is registered in spring factories`() {
+        val resource = javaClass.classLoader.getResource("META-INF/spring.factories")
+            ?: error("META-INF/spring.factories is missing from the classpath")
+        assertThat(resource.readText())
+            .contains(DatabaseUrlEnvironmentPostProcessor::class.java.name)
+    }
+
+    @Test
     fun `post processor applies neon uri credentials`() {
         val env = MockEnvironment()
         env.setProperty(

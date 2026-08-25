@@ -13,4 +13,8 @@ describe('uniqueImportLabelName', () => {
       'Google Keep import 2026-08-24 (2)',
     )
   })
+
+  it('can use a backup import prefix', () => {
+    expect(uniqueImportLabelName([], now, 'Backup import')).toBe('Backup import 2026-08-24')
+  })
 })

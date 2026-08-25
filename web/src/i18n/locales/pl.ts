@@ -179,6 +179,7 @@ export default {
       unzipTooLarge:
         'Ten plik ZIP po rozpakowaniu zajmuje więcej niż {{max}} MiB. Wybierz mniejsze archiwum Takeout.',
       zipTooLarge: 'Ten plik ZIP jest większy niż {{max}} MiB. Wybierz mniejsze archiwum Takeout.',
+      ownkeepBackup: 'To jest kopia zapasowa OwnKeep. Użyj opcji „Importuj z kopii zapasowej”.',
     },
     result: {
       imported_one: 'Zaimportowano {{count}} notatkę',
@@ -192,9 +193,95 @@ export default {
       missingAttachment: 'Brak załącznika {{relative}} dla {{path}}',
       skipped: 'Pominięto {{path}}: {{error}}',
       unknownError: 'nieznany błąd',
-      unknownColor: 'Nieznany kolor Keep „{{color}}” dla {{path}} został zastąpiony bielą',
+      unknownColor: 'Nieznany kolor „{{color}}” dla {{path}} został zastąpiony bielą',
     },
     toastCompleted: 'Import z Google Keep zakończony',
+  },
+
+  backup: {
+    export: {
+      eyebrow: 'Kopia zapasowa',
+      title: 'Utwórz kopię zapasową',
+      description:
+        'Pobierz plik ZIP ze wszystkimi notatkami, etykietami i załącznikami. Archiwum powstaje w Twojej przeglądarce; serwer nigdy nie widzi treści w postaci jawnej.',
+      warning:
+        'Pliki kopii zapasowej nie są szyfrowane. Każdy, kto ma ten ZIP, może odczytać Twoje notatki. Przechowuj go w bezpiecznym miejscu.',
+      submit: 'Pobierz kopię zapasową',
+      submitting: 'Przygotowywanie kopii…',
+      progress: 'Przygotowywanie kopii… {{progress}}%',
+      done: 'Gotowe',
+      cancel: 'Anuluj',
+      vaultLocked: 'Odblokuj sejf przed utworzeniem kopii zapasowej.',
+      toastCompleted: 'Pobrano kopię zapasową',
+      result: {
+        ready: 'Kopia zapasowa jest gotowa.',
+        notes_one: '{{count}} notatka',
+        notes_few: '{{count}} notatki',
+        notes_many: '{{count}} notatek',
+        notes_other: '{{count}} notatki',
+        warningsTitle: 'Ostrzeżenia',
+      },
+      warnings: {
+        noteFailed: 'Nie udało się wyeksportować notatki {{id}}: {{error}}',
+        attachmentFailed:
+          'Nie udało się wyeksportować załącznika {{name}} z notatki „{{title}}”: {{error}}',
+        unknownError: 'nieznany błąd',
+      },
+    },
+    restore: {
+      eyebrow: 'Przywracanie',
+      title: 'Importuj z kopii zapasowej',
+      description:
+        'Notatki są odczytywane z pliku ZIP kopii zapasowej OwnKeep w Twojej przeglądarce, a następnie szyfrowane przed przesłaniem. Serwer nigdy nie widzi treści w postaci jawnej.',
+      plaintextWarning:
+        'Pliki kopii zapasowej nie są szyfrowane. Przywracaj tylko ZIP, który sam utworzyłeś i któremu ufasz.',
+      chooseFile: 'Plik ZIP kopii zapasowej OwnKeep',
+      cancel: 'Anuluj',
+      back: 'Wstecz',
+      continue: 'Dalej',
+      submit: 'Importuj',
+      submitting: 'Importowanie…',
+      progress: {
+        clearing: 'Czyszczenie sejfu… {{progress}}%',
+        importing: 'Importowanie… {{progress}}%',
+      },
+      done: 'Gotowe',
+      vaultLocked: 'Odblokuj sejf przed importem.',
+      noFileSelected: 'Wybierz plik ZIP kopii zapasowej OwnKeep.',
+      invalidFile: 'Wybierz plik .zip utworzony przez kopię zapasową OwnKeep.',
+      replaceConfirm: 'Rozumiem, że spowoduje to usunięcie wszystkich obecnych notatek, etykiet i załączników.',
+      replaceConfirmRequired: 'Potwierdź, że chcesz zastąpić sejf, zanim zaczniesz import.',
+      mode: {
+        question: 'Jak chcesz zaimportować notatki?',
+        replace: {
+          title: 'Zastąp mój sejf',
+          description:
+            'Usuń istniejące notatki, etykiety i załączniki i przywróć wszystko z kopii zapasowej.',
+        },
+        add: {
+          title: 'Dodaj notatki do obecnego sejfu',
+          description:
+            'Wszystkie zaimportowane notatki dostaną dodatkową etykietę, żeby łatwo je znaleźć.',
+        },
+      },
+      errors: {
+        zipTooLarge: 'Ten plik ZIP jest większy niż {{max}} MiB. Wybierz mniejszą kopię zapasową.',
+        unzipTooLarge:
+          'Ten plik ZIP po rozpakowaniu zajmuje więcej niż {{max}} MiB. Wybierz mniejszą kopię zapasową.',
+        invalidManifest:
+          'Ten plik ZIP nie jest kopią zapasową OwnKeep. Użyj „Importuj z Google Keep” dla archiwum Takeout.',
+        unsupportedVersion: 'Ta wersja formatu kopii zapasowej ({{version}}) nie jest obsługiwana.',
+      },
+      result: {
+        imported_one: 'Zaimportowano {{count}} notatkę',
+        imported_few: 'Zaimportowano {{count}} notatki',
+        imported_many: 'Zaimportowano {{count}} notatek',
+        imported_other: 'Zaimportowano {{count}} notatek',
+        skipped: ', pominięto {{count}}',
+        warningsTitle: 'Ostrzeżenia',
+      },
+      toastCompleted: 'Import z kopii zapasowej zakończony',
+    },
   },
 
   notes: {
@@ -390,6 +477,8 @@ export default {
     account: {
       userSettings: 'Ustawienia użytkownika',
       manageUsers: 'Zarządzaj użytkownikami',
+      backupNotes: 'Utwórz kopię zapasową',
+      importFromBackup: 'Importuj z kopii zapasowej',
       importFromKeep: 'Importuj z Google Keep',
     },
     nav: {
