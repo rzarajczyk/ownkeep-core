@@ -232,20 +232,25 @@ describe('pinned notes layout', () => {
 
   it('starts sync from the sidebar status instead of a header button', async () => {
     const kick = vi.spyOn(SyncEngine.prototype, 'kick')
-    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    try {
+      render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
 
-    const status = await screen.findByRole('button', { name: 'Sync notes' })
-    expect(status).toHaveClass('sidebar-status')
-    await waitFor(() => {
-      expect(status).toBeEnabled()
-      expect(status).toHaveTextContent('Synced')
-    })
-    expect(document.querySelector('.sync-button')).not.toBeInTheDocument()
+      const status = await screen.findByRole('button', { name: 'Sync notes' })
+      expect(status).toHaveClass('sidebar-status')
+      await screen.findByText('Pinned idea')
+      await waitFor(() => {
+        expect(status).toBeEnabled()
+        expect(status).toHaveTextContent('Synced')
+        expect(kick).toHaveBeenCalled()
+      })
+      expect(document.querySelector('.sync-button')).not.toBeInTheDocument()
 
-    kick.mockClear()
-    fireEvent.click(status)
-    expect(kick).toHaveBeenCalled()
-    kick.mockRestore()
+      kick.mockClear()
+      fireEvent.click(status)
+      expect(kick).toHaveBeenCalled()
+    } finally {
+      kick.mockRestore()
+    }
   })
 
   it('keeps healthy notes visible when one cached record cannot be decrypted', async () => {

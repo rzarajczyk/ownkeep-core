@@ -44,7 +44,7 @@ export class SyncEngine {
   start() {
     if (this.running) return
     this.running = true
-    const kick = () => void this.sync()
+    const kick = this.kick.bind(this)
     const onVisible = () => {
       if (document.visibilityState === 'visible') kick()
     }
