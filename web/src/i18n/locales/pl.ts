@@ -179,7 +179,7 @@ export default {
       unzipTooLarge:
         'Ten plik ZIP po rozpakowaniu zajmuje więcej niż {{max}} MiB. Wybierz mniejsze archiwum Takeout.',
       zipTooLarge: 'Ten plik ZIP jest większy niż {{max}} MiB. Wybierz mniejsze archiwum Takeout.',
-      ownkeepBackup: 'To jest kopia zapasowa OwnKeep. Użyj opcji „Importuj z kopii zapasowej”.',
+      ownkeepBackup: 'To jest kopia zapasowa OwnKeep. Użyj opcji „Przywróć kopię zapasową”.',
     },
     result: {
       imported_one: 'Zaimportowano {{count}} notatkę',
@@ -230,7 +230,7 @@ export default {
     },
     restore: {
       eyebrow: 'Przywracanie',
-      title: 'Importuj z kopii zapasowej',
+      title: 'Przywróć kopię zapasową',
       description:
         'Notatki są odczytywane z pliku ZIP kopii zapasowej OwnKeep w Twojej przeglądarce, a następnie szyfrowane przed przesłaniem. Serwer nigdy nie widzi treści w postaci jawnej.',
       plaintextWarning:
@@ -478,7 +478,7 @@ export default {
       userSettings: 'Ustawienia użytkownika',
       manageUsers: 'Zarządzaj użytkownikami',
       backupNotes: 'Utwórz kopię zapasową',
-      importFromBackup: 'Importuj z kopii zapasowej',
+      importFromBackup: 'Przywróć kopię zapasową',
       importFromKeep: 'Importuj z Google Keep',
     },
     nav: {
