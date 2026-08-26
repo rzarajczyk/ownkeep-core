@@ -403,7 +403,7 @@ export function NoteEditor({
   note,
   knownLabels = [],
   cancelIfEmpty = false,
-  startInEditMode: _startInEditMode = false,
+  startInEditMode = false,
   online = typeof navigator === 'undefined' ? true : navigator.onLine,
   persistLocal,
   ensureLabelIds,
@@ -454,7 +454,9 @@ export function NoteEditor({
     useState<FormattingSelectionAnchor | null>(null)
   const [formattingToolbarPosition, setFormattingToolbarPosition] =
     useState<FormattingToolbarPosition | null>(null)
-  const [textEditMode, setTextEditMode] = useState<TextEditMode>('rich')
+  const [textEditMode, setTextEditMode] = useState<TextEditMode>(
+    startInEditMode ? 'rich' : 'preview',
+  )
   const [previewHtml, setPreviewHtml] = useState(note.contentRendered)
   const [itemPreviewHtml, setItemPreviewHtml] = useState<Record<string, string>>(() =>
     Object.fromEntries(note.items.map((item) => [item.id, item.textRendered])),

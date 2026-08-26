@@ -1,5 +1,5 @@
 /**
- * Normalize markdown before parsing so Render / Rich edit follow OwnKeep rules:
+ * Normalize markdown before parsing so Preview / Visual edit follow OwnKeep rules:
  * - no GFM task lists (app uses LIST notes for checkboxes)
  * - no reference-link / footnote definitions
  * - ~sub~ and ^sup^ expanded to HTML (strike stays ~~text~~)

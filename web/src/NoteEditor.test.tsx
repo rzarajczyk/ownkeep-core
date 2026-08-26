@@ -160,7 +160,7 @@ describe('NoteEditor', () => {
     )
   })
 
-  it('opens notes in rich edit by default', async () => {
+  it('opens notes in preview by default', async () => {
     render(
       <NoteEditor
         note={{ ...baseNote, contentRaw: '**Hello**', contentRendered: '<strong>Hello</strong>' }}
@@ -173,17 +173,14 @@ describe('NoteEditor', () => {
       />,
     )
 
-    expect(screen.getByText('Rich edit', { selector: 'button' })).toHaveAttribute(
+    expect(screen.getByText('Preview', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
-    await waitFor(() => {
-      expect(screen.getByLabelText('Note content')).toBeInTheDocument()
-    })
-    expect(screen.getByLabelText('Note content').className).toMatch(/rich-block-editor|tiptap/)
+    expect(screen.getByLabelText('Markdown preview')).toBeInTheDocument()
   })
 
-  it('switches from render to rich edit when preview is clicked', async () => {
+  it('switches from preview to visual edit when preview is clicked', async () => {
     render(
       <NoteEditor
         note={{ ...baseNote, contentRaw: '**Hello**', contentRendered: '<strong>Hello</strong>' }}
@@ -196,8 +193,7 @@ describe('NoteEditor', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('Render', { selector: 'button' }))
-    expect(screen.getByText('Render', { selector: 'button' })).toHaveAttribute(
+    expect(screen.getByText('Preview', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -205,13 +201,50 @@ describe('NoteEditor', () => {
 
     fireEvent.click(screen.getByLabelText('Markdown preview'))
 
-    expect(screen.getByText('Rich edit', { selector: 'button' })).toHaveAttribute(
+    expect(screen.getByText('Visual edit', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
     await waitFor(() => {
       expect(screen.getByLabelText('Note content')).toBeInTheDocument()
     })
+  })
+
+  it('opens list notes in preview and switches to visual edit on click', async () => {
+    render(
+      <NoteEditor
+        note={{
+          ...baseNote,
+          type: 'LIST',
+          items: [
+            {
+              id: 'i1',
+              text: 'Milk',
+              textRendered: 'Milk',
+              checked: false,
+              sortOrder: 0,
+              indent: 0,
+            },
+          ],
+        }}
+        ensureLabelIds={async () => []}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Preview', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    fireEvent.click(screen.getByLabelText('Markdown preview'))
+    expect(screen.getByText('Visual edit', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
   })
 
   it('can switch to raw edit mode', async () => {
@@ -228,7 +261,7 @@ describe('NoteEditor', () => {
       />,
     )
 
-    expect(screen.getByText('Rich edit', { selector: 'button' })).toHaveAttribute(
+    expect(screen.getByText('Visual edit', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -245,6 +278,7 @@ describe('NoteEditor', () => {
     render(
       <NoteEditor
         note={baseNote}
+        startInEditMode
         ensureLabelIds={async () => []}
         onClose={vi.fn()}
         onOptimistic={vi.fn()}

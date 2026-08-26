@@ -652,8 +652,8 @@ export default {
     modes: {
       tablistAria: 'Note mode',
       markdown: 'Markdown',
-      richEdit: 'Rich edit',
-      render: 'Render',
+      richEdit: 'Visual edit',
+      render: 'Preview',
     },
     saveError: {
       preserved: '{{error}} Your edits are preserved.',
