@@ -413,6 +413,7 @@ describe('pinned notes layout', () => {
     const items = within(menu).getAllByRole('menuitem').map((item) => item.textContent?.replace(/\s+/g, ' ').trim())
     expect(items).toEqual([
       'User settings',
+      'Device settings',
       'Backup notes',
       'Import from backup file',
       'Import from Google Keep',
@@ -428,6 +429,7 @@ describe('pinned notes layout', () => {
       .map((item) => item.textContent?.replace(/\s+/g, ' ').trim())
     expect(items).toEqual([
       'User settings',
+      'Device settings',
       'Manage users',
       'Backup notes',
       'Import from backup file',

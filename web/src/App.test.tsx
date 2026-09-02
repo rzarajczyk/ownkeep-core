@@ -35,6 +35,7 @@ vi.mock('./AppShell', () => ({
 }))
 
 vi.mock('./vault/VaultContext', () => ({
+  clearVaultSession: vi.fn(),
   VaultProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   useVault: () => ({ isUnlocked: true, lock: vi.fn() }),
   vaultNeedsSetup: () => false,

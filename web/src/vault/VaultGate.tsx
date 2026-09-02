@@ -1,10 +1,11 @@
-import { Check, Copy, Download, KeyRound, LoaderCircle, LockKeyhole, ShieldAlert } from 'lucide-react'
+import { Check, Copy, Download, Fingerprint, KeyRound, LoaderCircle, LockKeyhole, ShieldAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, ApiError } from '../api'
 import type { AuthSession, User } from '../types'
 import { rewrapVaultForPassword } from '../crypto/vault'
 import { errorMessage } from '../utils'
+import { DeviceUnlockError } from './deviceUnlock'
 import { useVault } from './VaultContext'
 
 /** Shown only once after first-time vault creation — login password is reused automatically. */
@@ -303,12 +304,26 @@ export function VaultUnlock({
   onReady: () => void | Promise<void>
 }) {
   const { t } = useTranslation()
-  const { unlockWithPassword, unlockWithRecovery, installPasswordWrap } = useVault()
+  const {
+    deviceUnlockAvailability,
+    deviceUnlockEnrolled,
+    installPasswordWrap,
+    unlockMode,
+    unlockWithDevice,
+    unlockWithPassword,
+    unlockWithRecovery,
+  } = useVault()
   const needsRecovery = user.vault.needsRecoveryUnlock
+  const canUseDevice =
+    !needsRecovery &&
+    unlockMode === 'device-verification' &&
+    deviceUnlockAvailability === 'available' &&
+    deviceUnlockEnrolled
   const [password, setPassword] = useState(needsRecovery ? '' : (passwordHint ?? ''))
   const [recoveryKey, setRecoveryKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(!needsRecovery && Boolean(passwordHint))
+  const [showPassword, setShowPassword] = useState(needsRecovery || !canUseDevice)
   const autoTried = useRef(false)
 
   async function unlockWith(passwordValue: string, recoveryValue?: string) {
@@ -326,6 +341,24 @@ export function VaultUnlock({
       await onReady()
     } catch {
       setError(needsRecovery ? t('vault.unlock.needsRecoveryError') : t('vault.unlock.error'))
+      setBusy(false)
+    }
+  }
+
+  async function unlockUsingDevice() {
+    setBusy(true)
+    setError(null)
+    try {
+      await unlockWithDevice()
+      await onReady()
+    } catch (reason) {
+      const canceled = reason instanceof DeviceUnlockError && reason.code === 'cancelled'
+      setError(
+        canceled
+          ? t('vault.unlock.deviceCanceled')
+          : t('vault.unlock.deviceError'),
+      )
+      if (!canceled) setShowPassword(true)
       setBusy(false)
     }
   }
@@ -365,54 +398,95 @@ export function VaultUnlock({
         <p className="vault-unlock-intro">
           {needsRecovery
             ? t('vault.unlock.needsRecoveryIntro')
-            : t('vault.unlock.intro', { email: user.email })}
+            : canUseDevice
+              ? t('vault.unlock.deviceIntro', { email: user.email })
+              : t('vault.unlock.intro', { email: user.email })}
         </p>
-        <form
-          className="vault-unlock-form"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void unlockWith(password)
-          }}
-        >
-          {needsRecovery ? (
+        {!needsRecovery && unlockMode === 'device-verification' && !deviceUnlockEnrolled && (
+          <p className="vault-device-missing" role="status">
+            {t('vault.unlock.deviceMissing')}
+          </p>
+        )}
+        {!needsRecovery &&
+          unlockMode === 'device-verification' &&
+          deviceUnlockEnrolled &&
+          deviceUnlockAvailability !== 'available' && (
+            <p className="vault-device-missing" role="status">
+              {t('vault.unlock.deviceUnavailable')}
+            </p>
+          )}
+        {canUseDevice && !showPassword && (
+          <div className="vault-device-actions">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy}
+              onClick={() => void unlockUsingDevice()}
+            >
+              {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <Fingerprint aria-hidden="true" />}
+              {busy ? t('vault.unlock.deviceUnlockingButton') : t('vault.unlock.deviceUnlockButton')}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => {
+                setError(null)
+                setShowPassword(true)
+              }}
+            >
+              {t('vault.unlock.usePasswordButton')}
+            </button>
+          </div>
+        )}
+        {(showPassword || needsRecovery) && (
+          <form
+            className="vault-unlock-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void unlockWith(password)
+            }}
+          >
+            {needsRecovery ? (
+              <label>
+                {t('vault.unlock.recoveryKeyLabel')}
+                <input
+                  type="text"
+                  value={recoveryKey}
+                  onChange={(e) => setRecoveryKey(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                />
+              </label>
+            ) : null}
             <label>
-              {t('vault.unlock.recoveryKeyLabel')}
+              {needsRecovery ? t('vault.unlock.newPasswordLabel') : t('vault.unlock.passwordLabel')}
               <input
-                type="text"
-                value={recoveryKey}
-                onChange={(e) => setRecoveryKey(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={needsRecovery ? 'new-password' : 'current-password'}
                 required
+                autoFocus={!needsRecovery}
               />
             </label>
-          ) : null}
-          <label>
-            {needsRecovery ? t('vault.unlock.newPasswordLabel') : t('vault.unlock.passwordLabel')}
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={needsRecovery ? 'new-password' : 'current-password'}
-              required
-              autoFocus={!needsRecovery}
-            />
-          </label>
-          {error ? <p className="error" role="alert">{error}</p> : null}
-          <button type="submit" className="primary-button" disabled={busy}>
-            {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : needsRecovery ? <KeyRound aria-hidden="true" /> : <LockKeyhole aria-hidden="true" />}
-            {busy
-              ? needsRecovery
-                ? t('vault.unlock.recoveringButton')
-                : t('vault.unlock.unlockingButton')
-              : needsRecovery
-                ? t('vault.unlock.recoverButton')
-                : t('vault.unlock.unlockButton')}
-          </button>
-          <button type="button" className="secondary-button" onClick={() => void onLogout()}>
-            {t('vault.unlock.logoutButton')}
-          </button>
-        </form>
+            <button type="submit" className="primary-button" disabled={busy}>
+              {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : needsRecovery ? <KeyRound aria-hidden="true" /> : <LockKeyhole aria-hidden="true" />}
+              {busy
+                ? needsRecovery
+                  ? t('vault.unlock.recoveringButton')
+                  : t('vault.unlock.unlockingButton')
+                : needsRecovery
+                  ? t('vault.unlock.recoverButton')
+                  : t('vault.unlock.unlockButton')}
+            </button>
+          </form>
+        )}
+        {error ? <p className="error" role="alert">{error}</p> : null}
+        <button type="button" className="secondary-button" onClick={() => void onLogout()} disabled={busy}>
+          {t('vault.unlock.logoutButton')}
+        </button>
       </section>
     </main>
   )

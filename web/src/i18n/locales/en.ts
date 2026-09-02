@@ -141,6 +141,67 @@ export default {
     },
   },
 
+  deviceSettings: {
+    nav: {
+      unlock: 'Vault unlock',
+      language: 'Language',
+    },
+    eyebrow: 'This browser',
+    title: 'Device settings',
+    close: 'Close device settings',
+    unlock: {
+      title: 'Vault unlock',
+      intro:
+        'Choose how this browser unlocks the key that decrypts your notes after a reload, new tab, or restart.',
+      password: {
+        label: 'Ask for my password (default)',
+        description:
+          'The vault key stays in memory only. You will enter your password after every reload or new tab.',
+      },
+      device: {
+        label: 'Unlock with this device (recommended)',
+        description:
+          'Protect a local encrypted vault key with this browser’s secure device prompt. Your system may use face, fingerprint, PIN, or passcode.',
+        checking: 'Checking whether this browser supports secure device unlock…',
+        insecureContext: 'Device unlock requires HTTPS, except when using localhost for development.',
+        unsupported: 'This browser or device does not support secure WebAuthn PRF unlock.',
+        enabledNote:
+          'Enabled only for this browser profile and this OwnKeep hostname. Your password remains available as a fallback.',
+        missingEnrollment:
+          'The encrypted device-unlock record is missing or no longer usable in this browser profile.',
+        setUpAgain: 'Set up device unlock again',
+        settingUp: 'Setting up…',
+      },
+      keepUnlocked: {
+        label: 'Keep the vault unlocked',
+        summary:
+          'Convenient, but this browser can decrypt your notes without a password or device check until you log out.',
+        threatsTitle: 'Security threats',
+        warningLead:
+          'This stores enough material in the browser to unlock your vault automatically after a reload or restart.',
+        threatPhysical: 'Physical access — Anyone using this browser profile can open and read your notes.',
+        threatXss: 'Page attacks — Injected page code can use the stored key to decrypt your notes.',
+        threatExtensions: 'Browser extensions — A malicious extension with site access can use the stored key.',
+        threatForensics: 'Malware and disk access — Copied browser data may remain usable on this machine.',
+        threatShared: 'Shared computers — Never use this mode on a public or untrusted device.',
+        threatTabs: 'Other tabs — Every tab and later visit remains unlocked until the vault is explicitly locked.',
+        clearsOnLogout: 'Logging out or changing this mode removes the automatically usable stored key.',
+      },
+      errors: {
+        canceled: 'Device setup was canceled. Your previous unlock mode is unchanged.',
+        unsupported: 'This credential cannot provide the secure key required for device unlock.',
+        failed: 'Could not change the vault unlock mode. Your previous setting is unchanged.',
+      },
+    },
+    language: {
+      title: 'Language',
+      hint: 'Choose the language used in this browser. Auto follows the browser language when possible.',
+      auto: 'Auto (browser)',
+      en: 'English',
+      pl: 'Polski',
+    },
+  },
+
   import: {
     eyebrow: 'Import notes',
     title: 'Import from Google Keep',
@@ -455,6 +516,7 @@ export default {
     sync: 'Sync notes',
     account: {
       userSettings: 'User settings',
+      deviceSettings: 'Device settings',
       manageUsers: 'Manage users',
       backupNotes: 'Backup notes',
       importFromBackup: 'Import from backup file',
@@ -505,6 +567,14 @@ export default {
       unlockingButton: 'Unlocking…',
       logoutButton: 'Logout',
       error: 'Incorrect password',
+      deviceIntro: 'Signed in as {{email}}. Verify with this device to decrypt your notes.',
+      deviceUnlockButton: 'Unlock with this device',
+      deviceUnlockingButton: 'Verifying…',
+      usePasswordButton: 'Use password instead',
+      deviceCanceled: 'Device verification was canceled.',
+      deviceError: 'Device verification failed. Use your password or try again.',
+      deviceMissing: 'Device unlock data is missing or no longer usable in this browser. Use your password, then set it up again in Device settings.',
+      deviceUnavailable: 'Device unlock is unavailable in this browser right now. Use your password to unlock the vault.',
       needsRecoveryEyebrow: 'Password reset',
       needsRecoveryTitle: 'Recover your vault',
       needsRecoveryIntro:

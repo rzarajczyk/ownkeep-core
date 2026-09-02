@@ -3,14 +3,15 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { randomBytes } from '../crypto/aead'
 import {
   VAULT_LOCK_PREF_KEY,
+  VAULT_UNLOCK_MODE_PREF_KEY,
   VAULT_PERSIST_DB,
   VAULT_PERSIST_STORE,
   clearPersistedVaultKey,
   clearPersistedVaultKeysExcept,
   persistVaultKey,
-  readLockBehavior,
+  readUnlockMode,
   restoreVaultKey,
-  writeLockBehavior,
+  writeUnlockMode,
 } from './vaultPersist'
 
 async function readWrap(userId: number) {
@@ -56,16 +57,26 @@ describe('vaultPersist', () => {
     localStorage.clear()
   })
 
-  it('defaults to lock-on-reload and stores per-user preference', () => {
-    expect(readLockBehavior(3)).toBe('lock-on-reload')
-    writeLockBehavior(3, 'until-logout')
-    writeLockBehavior(8, 'lock-on-reload')
-    expect(readLockBehavior(3)).toBe('until-logout')
-    expect(readLockBehavior(8)).toBe('lock-on-reload')
-    expect(JSON.parse(localStorage.getItem(VAULT_LOCK_PREF_KEY) ?? '{}')).toEqual({
-      '3': 'until-logout',
-      '8': 'lock-on-reload',
+  it('defaults to password and stores each user mode', () => {
+    expect(readUnlockMode(3)).toBe('password')
+    writeUnlockMode(3, 'keep-unlocked')
+    writeUnlockMode(8, 'password')
+    expect(readUnlockMode(3)).toBe('keep-unlocked')
+    expect(readUnlockMode(8)).toBe('password')
+    expect(JSON.parse(localStorage.getItem(VAULT_UNLOCK_MODE_PREF_KEY) ?? '{}')).toEqual({
+      '3': 'keep-unlocked',
+      '8': 'password',
     })
+  })
+
+  it('migrates legacy lock behavior values without rewriting storage', () => {
+    localStorage.setItem(
+      VAULT_LOCK_PREF_KEY,
+      JSON.stringify({ '3': 'until-logout', '8': 'lock-on-reload' }),
+    )
+    expect(readUnlockMode(3)).toBe('keep-unlocked')
+    expect(readUnlockMode(8)).toBe('password')
+    expect(localStorage.getItem(VAULT_UNLOCK_MODE_PREF_KEY)).toBeNull()
   })
 
   it('round-trips a vault key without storing extractable wrapping key bytes', async () => {

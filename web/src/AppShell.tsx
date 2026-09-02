@@ -3,6 +3,7 @@ import {
   ChevronDown,
   Download,
   FileUp,
+  Fingerprint,
   KeyRound,
   LoaderCircle,
   LogOut,
@@ -39,6 +40,7 @@ import { NotesMasonry } from './NotesMasonry'
 import { KeepImportDialog } from './KeepImportDialog'
 import { BackupDialog } from './BackupDialog'
 import { BackupRestoreDialog } from './BackupRestoreDialog'
+import { DeviceSettingsDialog } from './DeviceSettingsDialog'
 import { UserManagementDialog } from './UserManagementDialog'
 import { UserSettingsDialog } from './UserSettingsDialog'
 import {
@@ -160,6 +162,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const [backupOpen, setBackupOpen] = useState(false)
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false)
   const [usersOpen, setUsersOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [knownLabels, setKnownLabels] = useState<string[]>([])
@@ -909,6 +912,16 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
               >
                 <Settings aria-hidden="true" /> {t('shell.account.userSettings')}
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountOpen(false)
+                  setDeviceSettingsOpen(true)
+                }}
+              >
+                <Fingerprint aria-hidden="true" /> {t('shell.account.deviceSettings')}
+              </button>
               {user.role === 'ADMIN' && (
                 <button
                   type="button"
@@ -1052,6 +1065,16 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             }}
           >
             <Settings aria-hidden="true" /> {t('shell.account.userSettings')}
+          </button>
+          <button
+            type="button"
+            className="mobile-import"
+            onClick={() => {
+              setNavOpen(false)
+              setDeviceSettingsOpen(true)
+            }}
+          >
+            <Fingerprint aria-hidden="true" /> {t('shell.account.deviceSettings')}
           </button>
           {user.role === 'ADMIN' && (
             <button
@@ -1298,6 +1321,9 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           onPasswordChanged={onSessionEnded}
           onAccountDeleted={onSessionEnded}
         />
+      )}
+      {deviceSettingsOpen && (
+        <DeviceSettingsDialog onClose={() => setDeviceSettingsOpen(false)} />
       )}
       {usersOpen && (
         <UserManagementDialog currentUser={user} onClose={() => setUsersOpen(false)} />

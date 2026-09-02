@@ -199,6 +199,48 @@ test('signs in and creates a text note', async ({ page }) => {
   await finishNote(page, 'Smoke test note')
 })
 
+test('enrolls and unlocks the vault with WebAuthn PRF', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'uses a Chromium virtual authenticator')
+  const client = await page.context().newCDPSession(page)
+  await client.send('WebAuthn.enable')
+  await client.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      ctap2Version: 'ctap2_1',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      hasPrf: true,
+      automaticPresenceSimulation: true,
+      isUserVerified: true,
+    },
+  })
+
+  await page.goto('/')
+  await page.getByLabel('Email').fill('demo@example.com')
+  await page.getByLabel('Password').fill('password')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'Save your recovery key' })).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('button', { name: 'I saved it — continue' }).click()
+  await expect(page.getByRole('heading', { name: 'Your notes' })).toBeVisible()
+
+  await page.getByRole('button', { name: /demo@example\.com/ }).click()
+  await page.getByRole('menuitem', { name: 'Device settings' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Device settings' })
+  await dialog.getByRole('radio', { name: /Unlock with this device/ }).click()
+  await expect(dialog.getByRole('alert')).not.toBeVisible()
+  await expect(dialog.getByRole('radio', { name: /Unlock with this device/ })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Close device settings' }).click()
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Unlock with this device' })).toBeVisible()
+  await expect(page.getByLabel('Password')).not.toBeVisible()
+  await page.getByRole('button', { name: 'Unlock with this device' }).click()
+  await expect(page.getByRole('heading', { name: 'Your notes' })).toBeVisible()
+})
+
 test('batch edits selected notes from desktop hover controls', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'desktop hover interaction')
   await signInAndOpenEditor(page)

@@ -752,6 +752,34 @@ svg {
   margin: 0;
 }
 
+.vault-device-actions {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.vault-device-actions .primary-button,
+.vault-device-actions .secondary-button,
+.vault-unlock-card > .secondary-button {
+  width: 100%;
+  min-height: 46px;
+}
+
+.vault-device-missing {
+  padding: 10px 12px;
+  color: #795327;
+  border: 1px solid #e4d2b7;
+  border-radius: 10px;
+  background: #fff9ec;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.vault-unlock-card > .error {
+  color: #9c2f2f;
+  font-size: 0.82rem;
+}
+
 .recovery-key-screen {
   box-sizing: border-box;
   width: 100%;
@@ -2494,6 +2522,10 @@ svg {
 .settings-choice input {
   margin-top: 3px;
 }
+.settings-choice:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
 .settings-choice.active {
   border-color: var(--accent);
   background: rgb(31 85 70 / 8%);
@@ -2501,6 +2533,18 @@ svg {
 .settings-choice-warning.active {
   border-color: #c98970;
   background: #fcf8f6;
+}
+.settings-choice-device {
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+.settings-choice-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.settings-choice-icon svg {
+  width: 19px;
+  height: 19px;
 }
 .settings-choice-text {
   display: grid;
@@ -2537,6 +2581,44 @@ svg {
 }
 .settings-vault-threats li + li {
   margin-top: 6px;
+}
+.settings-vault-threats > p:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.settings-vault-threats > p:first-child svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+.settings-support-note {
+  padding-left: 4px;
+}
+.settings-device-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  color: #285d4e;
+  border: 1px solid rgb(31 85 70 / 18%);
+  border-radius: 12px;
+  background: rgb(31 85 70 / 7%);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.settings-device-note svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  flex: none;
+}
+.settings-device-note p {
+  margin: 0;
+}
+
+.settings-device-reenroll {
+  margin-top: 0.65rem;
 }
 .settings-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 26px; }
 .settings-section-nav {

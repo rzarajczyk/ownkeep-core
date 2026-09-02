@@ -1,13 +1,8 @@
-import { Globe, KeyRound, LoaderCircle, Trash2, X } from 'lucide-react'
+import { KeyRound, LoaderCircle, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DELETED_USER_RETENTION_DAYS, deletedAccountRetentionCopy } from './accountRetention'
 import { api } from './api'
-import {
-  applyLanguagePreference,
-  readLanguagePreference,
-  type LanguagePreference,
-} from './i18n'
 import { errorMessage } from './utils'
 import { useVault } from './vault/VaultContext'
 
@@ -17,7 +12,7 @@ interface UserSettingsDialogProps {
   onAccountDeleted: () => void
 }
 
-type SettingsSection = 'security' | 'password' | 'account' | 'language'
+type SettingsSection = 'password' | 'account'
 
 export function UserSettingsDialog({
   onClose,
@@ -26,24 +21,18 @@ export function UserSettingsDialog({
 }: UserSettingsDialogProps) {
   const { t } = useTranslation()
   const dialogRef = useRef<HTMLDialogElement>(null)
-  const { rewrapForNewPassword, lockBehavior, setLockBehavior } = useVault()
+  const { clearLocalVaultAccess, rewrapForNewPassword } = useVault()
   const currentId = useId()
   const nextId = useId()
   const confirmId = useId()
   const deletePasswordId = useId()
-  const languageId = useId()
-  const [section, setSection] = useState<SettingsSection>('security')
+  const [section, setSection] = useState<SettingsSection>('password')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [deletePassword, setDeletePassword] = useState('')
-  const [languagePreference, setLanguagePreference] = useState<LanguagePreference>(() =>
-    readLanguagePreference(),
-  )
   const [error, setError] = useState('')
-  const [lockError, setLockError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [lockBusy, setLockBusy] = useState(false)
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -88,6 +77,7 @@ export function UserSettingsDialog({
     setSubmitting(true)
     try {
       await api.deleteAccount(deletePassword)
+      await clearLocalVaultAccess()
       onAccountDeleted()
     } catch (reason) {
       setError(errorMessage(reason))
@@ -98,26 +88,6 @@ export function UserSettingsDialog({
   function goToSection(next: SettingsSection) {
     setSection(next)
     setError('')
-    setLockError('')
-  }
-
-  function changeLanguage(next: LanguagePreference) {
-    setLanguagePreference(next)
-    applyLanguagePreference(next)
-  }
-
-  async function changeLockBehavior(next: typeof lockBehavior) {
-    if (next === lockBehavior || lockBusy) return
-    setError('')
-    setLockError('')
-    setLockBusy(true)
-    try {
-      await setLockBehavior(next)
-    } catch {
-      setLockError(t('settings.security.vaultLock.persistError'))
-    } finally {
-      setLockBusy(false)
-    }
   }
 
   return (
@@ -150,27 +120,11 @@ export function UserSettingsDialog({
           <nav className="settings-section-nav" aria-label={t('settings.title')}>
             <button
               type="button"
-              className={section === 'security' ? 'active' : ''}
-              aria-current={section === 'security' ? 'page' : undefined}
-              onClick={() => goToSection('security')}
-            >
-              {t('settings.nav.security')}
-            </button>
-            <button
-              type="button"
               className={section === 'password' ? 'active' : ''}
               aria-current={section === 'password' ? 'page' : undefined}
               onClick={() => goToSection('password')}
             >
               {t('settings.nav.password')}
-            </button>
-            <button
-              type="button"
-              className={section === 'language' ? 'active' : ''}
-              aria-current={section === 'language' ? 'page' : undefined}
-              onClick={() => goToSection('language')}
-            >
-              {t('settings.nav.language')}
             </button>
             <button
               type="button"
@@ -182,79 +136,10 @@ export function UserSettingsDialog({
             </button>
           </nav>
 
-          {section === 'security' ? (
-            <div className="settings-security">
-              <fieldset className="settings-vault-lock">
-                <legend>{t('settings.security.vaultLock.title')}</legend>
-                <p>{t('settings.security.vaultLock.intro')}</p>
-                <label
-                  className={
-                    lockBehavior === 'lock-on-reload'
-                      ? 'settings-choice active'
-                      : 'settings-choice'
-                  }
-                >
-                  <input
-                    type="radio"
-                    name="vault-lock-behavior"
-                    value="lock-on-reload"
-                    checked={lockBehavior === 'lock-on-reload'}
-                    disabled={lockBusy || submitting}
-                    onChange={() => void changeLockBehavior('lock-on-reload')}
-                  />
-                  <span className="settings-choice-text">
-                    <strong>{t('settings.security.vaultLock.lockOnReload.label')}</strong>
-                    <span>{t('settings.security.vaultLock.lockOnReload.description')}</span>
-                  </span>
-                </label>
-                <label
-                  className={
-                    lockBehavior === 'until-logout'
-                      ? 'settings-choice active settings-choice-warning'
-                      : 'settings-choice settings-choice-warning'
-                  }
-                >
-                  <input
-                    type="radio"
-                    name="vault-lock-behavior"
-                    value="until-logout"
-                    checked={lockBehavior === 'until-logout'}
-                    disabled={lockBusy || submitting}
-                    onChange={() => void changeLockBehavior('until-logout')}
-                  />
-                  <span className="settings-choice-text">
-                    <strong>{t('settings.security.vaultLock.untilLogout.label')}</strong>
-                    <span>{t('settings.security.vaultLock.untilLogout.summary')}</span>
-                  </span>
-                </label>
-                {lockBehavior === 'until-logout' && (
-                  <div className="settings-vault-threats" role="note">
-                    <p>
-                      <strong>{t('settings.security.vaultLock.untilLogout.threatsTitle')}</strong>
-                    </p>
-                    <p>{t('settings.security.vaultLock.untilLogout.warningLead')}</p>
-                    <ul>
-                      <li>{t('settings.security.vaultLock.untilLogout.threatPhysical')}</li>
-                      <li>{t('settings.security.vaultLock.untilLogout.threatXss')}</li>
-                      <li>{t('settings.security.vaultLock.untilLogout.threatExtensions')}</li>
-                      <li>{t('settings.security.vaultLock.untilLogout.threatForensics')}</li>
-                      <li>{t('settings.security.vaultLock.untilLogout.threatShared')}</li>
-                      <li>{t('settings.security.vaultLock.untilLogout.threatTabs')}</li>
-                    </ul>
-                    <p>{t('settings.security.vaultLock.untilLogout.clearsOnLogout')}</p>
-                  </div>
-                )}
-                {lockError && (
-                  <p className="inline-error" role="alert">
-                    {lockError}
-                  </p>
-                )}
-              </fieldset>
-            </div>
-          ) : section === 'password' ? (
-              <form onSubmit={(event) => void submitPasswordChange(event)} className="settings-form">
-                <p>{t('settings.security.description')}</p>
-                <label htmlFor={currentId}>{t('settings.security.currentPasswordLabel')}</label>
+          {section === 'password' ? (
+            <form onSubmit={(event) => void submitPasswordChange(event)} className="settings-form">
+              <p>{t('settings.security.description')}</p>
+              <label htmlFor={currentId}>{t('settings.security.currentPasswordLabel')}</label>
               <input
                 id={currentId}
                 type="password"
@@ -296,28 +181,6 @@ export function UserSettingsDialog({
                 </button>
               </div>
             </form>
-          ) : section === 'language' ? (
-            <div className="settings-form">
-              <p>{t('settings.language.hint')}</p>
-              <label htmlFor={languageId}>{t('settings.language.title')}</label>
-              <div className="settings-language-field">
-                <Globe aria-hidden="true" />
-                <select
-                  id={languageId}
-                  value={languagePreference}
-                  onChange={(event) => changeLanguage(event.target.value as LanguagePreference)}
-                >
-                  <option value="auto">{t('settings.language.auto')}</option>
-                  <option value="en">{t('settings.language.en')}</option>
-                  <option value="pl">{t('settings.language.pl')}</option>
-                </select>
-              </div>
-              <div className="import-actions">
-                <button type="button" className="secondary-button" onClick={onClose}>
-                  {t('common.actions.done')}
-                </button>
-              </div>
-            </div>
           ) : (
             <form onSubmit={(event) => void submitAccountDeletion(event)} className="settings-form danger-zone">
               <div>

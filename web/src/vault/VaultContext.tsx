@@ -18,70 +18,96 @@ import {
 import { api } from '../api'
 import { i18n } from '../i18n'
 import {
+  checkDeviceUnlockAvailability,
+  clearDeviceUnlockEnrollment,
+  enrollDeviceUnlock,
+  hasDeviceUnlockEnrollment,
+  unlockVaultWithDevice,
+  type DeviceUnlockAvailability,
+} from './deviceUnlock'
+import {
+  clearUnlockModePreference,
   clearPersistedVaultKey,
   clearPersistedVaultKeysExcept,
   persistVaultKey,
   publishVaultLocked,
-  readLockBehavior,
+  readUnlockMode,
+  removePersistedVaultKey,
   restoreVaultKey,
   subscribeVaultLocked,
-  writeLockBehavior,
-  type VaultLockBehavior,
+  writeUnlockMode,
+  type VaultUnlockMode,
 } from './vaultPersist'
 
-export type { VaultLockBehavior }
+export type { DeviceUnlockAvailability, VaultUnlockMode }
 
 interface VaultContextValue {
   vaultKey: Uint8Array | null
   isUnlocked: boolean
   isRestoring: boolean
-  lockBehavior: VaultLockBehavior
-  setLockBehavior: (behavior: VaultLockBehavior) => Promise<void>
+  unlockMode: VaultUnlockMode
+  deviceUnlockAvailability: DeviceUnlockAvailability
+  deviceUnlockEnrolled: boolean
+  setUnlockMode: (mode: VaultUnlockMode) => Promise<void>
   unlockWithPassword: (password: string, vault: VaultInfo) => Promise<void>
+  unlockWithDevice: () => Promise<void>
   unlockWithRecovery: (recoveryKey: string, vault: VaultInfo) => Promise<Uint8Array>
   setupVault: (password: string) => Promise<string>
   rewrapForNewPassword: (newPassword: string, vault: VaultInfo) => Promise<string>
   installPasswordWrap: (wrappedVaultKey: string) => Promise<void>
+  clearLocalVaultAccess: () => Promise<void>
   lock: () => void
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null)
 
-function shouldRestoreOnMount(userId: number | undefined) {
-  return userId != null && readLockBehavior(userId) === 'until-logout'
+export async function clearVaultSession(userId: number): Promise<void> {
+  clearNoteKeyCache()
+  publishVaultLocked(userId)
+  await clearPersistedVaultKey(userId)
 }
 
 export function VaultProvider({
   children,
-  userId,
+  user,
 }: {
   children: ReactNode
-  userId?: number
+  user: Pick<User, 'id' | 'email'>
 }) {
   const [vaultKey, setVaultKey] = useState<Uint8Array | null>(null)
-  const [lockBehavior, setLockBehaviorState] = useState<VaultLockBehavior>(() =>
-    userId != null ? readLockBehavior(userId) : 'lock-on-reload',
+  const [unlockMode, setUnlockModeState] = useState<VaultUnlockMode>(() =>
+    readUnlockMode(user.id),
   )
-  const [isRestoring, setIsRestoring] = useState(() => shouldRestoreOnMount(userId))
+  const [deviceUnlockAvailability, setDeviceUnlockAvailability] =
+    useState<DeviceUnlockAvailability>('checking')
+  const [deviceUnlockEnrolled, setDeviceUnlockEnrolled] = useState(false)
+  const [isRestoring, setIsRestoring] = useState(true)
 
   useEffect(() => {
-    setLockBehaviorState(userId != null ? readLockBehavior(userId) : 'lock-on-reload')
+    const userId = user.id
+    const mode = readUnlockMode(userId)
+    setUnlockModeState(mode)
     setVaultKey(null)
+    setDeviceUnlockEnrolled(false)
+    setDeviceUnlockAvailability('checking')
     clearNoteKeyCache()
-    if (userId == null) {
-      setIsRestoring(false)
-      return
-    }
     let cancelled = false
-    setIsRestoring(readLockBehavior(userId) === 'until-logout')
+    setIsRestoring(true)
     void (async () => {
       try {
-        await clearPersistedVaultKeysExcept(userId)
+        const [, availability, enrolled] = await Promise.all([
+          clearPersistedVaultKeysExcept(userId),
+          checkDeviceUnlockAvailability(),
+          hasDeviceUnlockEnrollment(userId),
+        ])
         if (cancelled) return
-        if (readLockBehavior(userId) !== 'until-logout') return
-        const key = await restoreVaultKey(userId)
-        if (cancelled) return
-        if (key) setVaultKey(key)
+        setDeviceUnlockAvailability(availability)
+        setDeviceUnlockEnrolled(enrolled)
+        if (mode === 'keep-unlocked') {
+          const key = await restoreVaultKey(userId)
+          if (cancelled) return
+          if (key) setVaultKey(key)
+        }
       } finally {
         if (!cancelled) setIsRestoring(false)
       }
@@ -89,52 +115,67 @@ export function VaultProvider({
     return () => {
       cancelled = true
     }
-  }, [userId])
+  }, [user.id])
 
   useEffect(() => {
-    if (userId == null) return
+    const userId = user.id
     return subscribeVaultLocked(userId, () => {
       setVaultKey(null)
       clearNoteKeyCache()
       void clearPersistedVaultKey(userId)
     })
-  }, [userId])
+  }, [user.id])
 
   const persistIfNeeded = useCallback(
     async (key: Uint8Array) => {
-      if (userId == null) return
-      if (readLockBehavior(userId) !== 'until-logout') return
-      await persistVaultKey(userId, key)
+      if (readUnlockMode(user.id) !== 'keep-unlocked') return
+      await persistVaultKey(user.id, key)
     },
-    [userId],
+    [user.id],
   )
 
   const lock = useCallback(() => {
     setVaultKey(null)
-    clearNoteKeyCache()
-    if (userId != null) {
-      publishVaultLocked(userId)
-      void clearPersistedVaultKey(userId)
-    }
-  }, [userId])
+    void clearVaultSession(user.id)
+  }, [user.id])
 
-  const setLockBehavior = useCallback(
-    async (behavior: VaultLockBehavior) => {
-      if (userId == null) {
-        setLockBehaviorState(behavior)
+  const setUnlockMode = useCallback(
+    async (mode: VaultUnlockMode) => {
+      if (
+        mode === unlockMode &&
+        (mode !== 'device-verification' || deviceUnlockEnrolled)
+      ) return
+      if (mode === 'device-verification') {
+        if (!vaultKey) throw new Error(i18n.t('errors.vaultLocked'))
+        await enrollDeviceUnlock(user, vaultKey)
+        try {
+          await removePersistedVaultKey(user.id)
+          writeUnlockMode(user.id, mode)
+        } catch (reason) {
+          await clearDeviceUnlockEnrollment(user.id).catch(() => undefined)
+          throw reason
+        }
+        setUnlockModeState(mode)
+        setDeviceUnlockEnrolled(true)
         return
       }
-      if (behavior === 'until-logout') {
-        if (vaultKey) await persistVaultKey(userId, vaultKey)
-        writeLockBehavior(userId, behavior)
-        setLockBehaviorState(behavior)
-        return
+      if (mode === 'keep-unlocked') {
+        if (!vaultKey) throw new Error(i18n.t('errors.vaultLocked'))
+        await persistVaultKey(user.id, vaultKey)
+      } else {
+        await removePersistedVaultKey(user.id)
       }
-      writeLockBehavior(userId, behavior)
-      setLockBehaviorState(behavior)
-      await clearPersistedVaultKey(userId)
+      try {
+        if (deviceUnlockEnrolled) await clearDeviceUnlockEnrollment(user.id)
+        writeUnlockMode(user.id, mode)
+      } catch (reason) {
+        if (mode === 'keep-unlocked') await clearPersistedVaultKey(user.id)
+        throw reason
+      }
+      setUnlockModeState(mode)
+      setDeviceUnlockEnrolled(false)
     },
-    [userId, vaultKey],
+    [deviceUnlockEnrolled, unlockMode, user, vaultKey],
   )
 
   const unlockWithPassword = useCallback(
@@ -163,6 +204,21 @@ export function VaultProvider({
     },
     [persistIfNeeded],
   )
+
+  const unlockWithDevice = useCallback(async () => {
+    try {
+      const key = await unlockVaultWithDevice(user.id)
+      setVaultKey(key)
+    } catch (reason) {
+      const canceled =
+        typeof reason === 'object' &&
+        reason !== null &&
+        'code' in reason &&
+        reason.code === 'cancelled'
+      if (!canceled) setDeviceUnlockEnrolled(false)
+      throw reason
+    }
+  }, [user.id])
 
   const setupVault = useCallback(
     async (password: string) => {
@@ -196,30 +252,51 @@ export function VaultProvider({
     await api.updateVaultWrap({ wrappedVaultKey })
   }, [])
 
+  const clearLocalVaultAccess = useCallback(async () => {
+    setVaultKey(null)
+    clearNoteKeyCache()
+    await Promise.all([
+      clearPersistedVaultKey(user.id),
+      clearDeviceUnlockEnrollment(user.id).catch(() => undefined),
+    ])
+    clearUnlockModePreference(user.id)
+    setUnlockModeState('password')
+    setDeviceUnlockEnrolled(false)
+    publishVaultLocked(user.id)
+  }, [user.id])
+
   const value = useMemo(
     () => ({
       vaultKey,
       isUnlocked: vaultKey !== null,
       isRestoring,
-      lockBehavior,
-      setLockBehavior,
+      unlockMode,
+      deviceUnlockAvailability,
+      deviceUnlockEnrolled,
+      setUnlockMode,
       unlockWithPassword,
+      unlockWithDevice,
       unlockWithRecovery,
       setupVault,
       rewrapForNewPassword,
       installPasswordWrap,
+      clearLocalVaultAccess,
       lock,
     }),
     [
       vaultKey,
       isRestoring,
-      lockBehavior,
-      setLockBehavior,
+      unlockMode,
+      deviceUnlockAvailability,
+      deviceUnlockEnrolled,
+      setUnlockMode,
       unlockWithPassword,
+      unlockWithDevice,
       unlockWithRecovery,
       setupVault,
       rewrapForNewPassword,
       installPasswordWrap,
+      clearLocalVaultAccess,
       lock,
     ],
   )

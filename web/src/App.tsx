@@ -8,7 +8,12 @@ import { bootstrapI18n } from './i18n'
 import { Login } from './Login'
 import { LocalRepository } from './offline/repository'
 import type { AuthSession, User } from './types'
-import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
+import {
+  clearVaultSession,
+  VaultProvider,
+  useVault,
+  vaultNeedsSetup,
+} from './vault/VaultContext'
 import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './vault/VaultGate'
 
 bootstrapI18n()
@@ -145,6 +150,8 @@ function App() {
   const [sessionExpired, setSessionExpired] = useState(false)
 
   const resetSession = useCallback((options?: { wipeStorage?: boolean }) => {
+    const endedSession = readStoredSession({ allowExpired: true })
+    if (endedSession) void clearVaultSession(endedSession.user.id)
     if (options?.wipeStorage !== false) {
       localStorage.removeItem(TOKEN_KEY)
     }
@@ -163,6 +170,7 @@ function App() {
     const stored = readStoredSession()
     const expiredStored = !stored ? readStoredSession({ allowExpired: true }) : null
     if (!stored && expiredStored) {
+      void clearVaultSession(expiredStored.user.id)
       setSessionExpired(true)
       setRestoring(false)
       return
@@ -266,7 +274,7 @@ function App() {
   }
 
   return (
-    <VaultProvider userId={session.user.id}>
+    <VaultProvider user={session.user}>
       {session.recoveryRequired ? (
         <RestoredUserRecovery
           user={session.user}

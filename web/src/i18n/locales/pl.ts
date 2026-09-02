@@ -141,6 +141,67 @@ export default {
     },
   },
 
+  deviceSettings: {
+    nav: {
+      unlock: 'Odblokowanie sejfu',
+      language: 'Język',
+    },
+    eyebrow: 'Ta przeglądarka',
+    title: 'Ustawienia urządzenia',
+    close: 'Zamknij ustawienia urządzenia',
+    unlock: {
+      title: 'Odblokowanie sejfu',
+      intro:
+        'Wybierz, jak ta przeglądarka ma odblokowywać klucz odszyfrowujący notatki po odświeżeniu, otwarciu nowej karty lub ponownym uruchomieniu.',
+      password: {
+        label: 'Pytaj o hasło (domyślnie)',
+        description:
+          'Klucz sejfu pozostaje wyłącznie w pamięci. Po każdym odświeżeniu lub otwarciu nowej karty podasz hasło.',
+      },
+      device: {
+        label: 'Odblokuj tym urządzeniem (zalecane)',
+        description:
+          'Chroń lokalnie zaszyfrowany klucz sejfu bezpiecznym monitem urządzenia. System może użyć twarzy, odcisku palca, kodu PIN lub kodu urządzenia.',
+        checking: 'Sprawdzanie obsługi bezpiecznego odblokowania na tym urządzeniu…',
+        insecureContext: 'Odblokowanie urządzeniem wymaga HTTPS, z wyjątkiem localhost używanego podczas programowania.',
+        unsupported: 'Ta przeglądarka lub urządzenie nie obsługuje bezpiecznego odblokowania WebAuthn PRF.',
+        enabledNote:
+          'Włączono tylko dla tego profilu przeglądarki i tej nazwy hosta OwnKeep. Hasło pozostaje metodą awaryjną.',
+        missingEnrollment:
+          'Brakuje zaszyfrowanego rekordu odblokowania urządzeniem albo nie można go już użyć w tym profilu przeglądarki.',
+        setUpAgain: 'Skonfiguruj ponownie',
+        settingUp: 'Konfigurowanie…',
+      },
+      keepUnlocked: {
+        label: 'Nie blokuj sejfu',
+        summary:
+          'Wygodne, ale ta przeglądarka może odszyfrować notatki bez hasła i bez sprawdzania urządzenia aż do wylogowania.',
+        threatsTitle: 'Zagrożenia związane z tą opcją',
+        warningLead:
+          'Ta opcja zapisuje w przeglądarce materiał wystarczający do automatycznego odblokowania sejfu po odświeżeniu lub ponownym uruchomieniu.',
+        threatPhysical: 'Dostęp fizyczny — każda osoba używająca tego profilu przeglądarki może otworzyć i przeczytać notatki.',
+        threatXss: 'Ataki na stronę — wstrzyknięty kod może użyć zapisanego klucza do odszyfrowania notatek.',
+        threatExtensions: 'Rozszerzenia — złośliwe rozszerzenie z dostępem do strony może użyć zapisanego klucza.',
+        threatForensics: 'Malware i dostęp do dysku — skopiowane dane przeglądarki mogą nadal działać na tym urządzeniu.',
+        threatShared: 'Współdzielone komputery — nie używaj tej opcji na publicznym ani niezaufanym urządzeniu.',
+        threatTabs: 'Inne karty — każda karta i późniejsza wizyta pozostaje odblokowana do wyraźnego zablokowania sejfu.',
+        clearsOnLogout: 'Wylogowanie lub zmiana tego trybu usuwa automatycznie używany zapisany klucz.',
+      },
+      errors: {
+        canceled: 'Konfiguracja urządzenia została anulowana. Poprzedni tryb odblokowania nie zmienił się.',
+        unsupported: 'Te dane uwierzytelniające nie udostępniają bezpiecznego klucza wymaganego do odblokowania urządzeniem.',
+        failed: 'Nie udało się zmienić trybu odblokowania sejfu. Poprzednie ustawienie nie zmieniło się.',
+      },
+    },
+    language: {
+      title: 'Język',
+      hint: 'Wybierz język używany w tej przeglądarce. Opcja Automatycznie użyje języka przeglądarki, jeśli to możliwe.',
+      auto: 'Automatycznie (przeglądarka)',
+      en: 'English',
+      pl: 'Polski',
+    },
+  },
+
   import: {
     eyebrow: 'Import notatek',
     title: 'Importuj z Google Keep',
@@ -476,6 +537,7 @@ export default {
     sync: 'Synchronizuj notatki',
     account: {
       userSettings: 'Ustawienia użytkownika',
+      deviceSettings: 'Ustawienia urządzenia',
       manageUsers: 'Zarządzaj użytkownikami',
       backupNotes: 'Utwórz kopię zapasową',
       importFromBackup: 'Przywróć kopię zapasową',
@@ -527,6 +589,14 @@ export default {
       unlockingButton: 'Odblokowywanie…',
       logoutButton: 'Wyloguj',
       error: 'Nieprawidłowe hasło',
+      deviceIntro: 'Zalogowano jako {{email}}. Potwierdź tożsamość na tym urządzeniu, aby odszyfrować notatki.',
+      deviceUnlockButton: 'Odblokuj tym urządzeniem',
+      deviceUnlockingButton: 'Weryfikowanie…',
+      usePasswordButton: 'Użyj hasła',
+      deviceCanceled: 'Weryfikacja urządzenia została anulowana.',
+      deviceError: 'Weryfikacja urządzenia nie powiodła się. Użyj hasła lub spróbuj ponownie.',
+      deviceMissing: 'Brakuje danych odblokowania urządzeniem albo nie można ich już użyć w tej przeglądarce. Użyj hasła, a następnie skonfiguruj je ponownie w ustawieniach urządzenia.',
+      deviceUnavailable: 'Odblokowanie urządzeniem jest teraz niedostępne w tej przeglądarce. Użyj hasła, aby odblokować sejf.',
       needsRecoveryEyebrow: 'Reset hasła',
       needsRecoveryTitle: 'Odzyskaj swój sejf',
       needsRecoveryIntro:

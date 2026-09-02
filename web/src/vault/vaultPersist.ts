@@ -1,7 +1,8 @@
 import { randomBytes } from '../crypto/aead'
 
-export type VaultLockBehavior = 'lock-on-reload' | 'until-logout'
+export type VaultUnlockMode = 'password' | 'device-verification' | 'keep-unlocked'
 
+export const VAULT_UNLOCK_MODE_PREF_KEY = 'ownkeep.vaultUnlockMode'
 export const VAULT_LOCK_PREF_KEY = 'ownkeep.vaultLockBehavior'
 export const VAULT_PERSIST_DB = 'ownkeep-vault-session-v1'
 export const VAULT_PERSIST_STORE = 'wraps'
@@ -30,19 +31,19 @@ function persistAad(userId: number) {
   return textEncoder.encode(`${AAD_PREFIX}${userId}`)
 }
 
-function isLockBehavior(value: unknown): value is VaultLockBehavior {
-  return value === 'lock-on-reload' || value === 'until-logout'
+function isUnlockMode(value: unknown): value is VaultUnlockMode {
+  return value === 'password' || value === 'device-verification' || value === 'keep-unlocked'
 }
 
-function readPreferenceMap(): Record<string, VaultLockBehavior> {
+function readPreferenceMap(): Record<string, VaultUnlockMode> {
   try {
-    const raw = localStorage.getItem(VAULT_LOCK_PREF_KEY)
+    const raw = localStorage.getItem(VAULT_UNLOCK_MODE_PREF_KEY)
     if (!raw) return {}
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object') return {}
-    const map: Record<string, VaultLockBehavior> = {}
+    const map: Record<string, VaultUnlockMode> = {}
     for (const [key, value] of Object.entries(parsed)) {
-      if (isLockBehavior(value)) map[key] = value
+      if (isUnlockMode(value)) map[key] = value
     }
     return map
   } catch {
@@ -50,17 +51,50 @@ function readPreferenceMap(): Record<string, VaultLockBehavior> {
   }
 }
 
-export function readLockBehavior(userId: number): VaultLockBehavior {
-  return readPreferenceMap()[String(userId)] ?? 'lock-on-reload'
+function readLegacyPreference(userId: number): VaultUnlockMode | null {
+  try {
+    const raw = localStorage.getItem(VAULT_LOCK_PREF_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const value = parsed[String(userId)]
+    if (value === 'lock-on-reload') return 'password'
+    if (value === 'until-logout') return 'keep-unlocked'
+  } catch {
+    // ignore malformed legacy preferences
+  }
+  return null
 }
 
-export function writeLockBehavior(userId: number, behavior: VaultLockBehavior) {
+export function readUnlockMode(userId: number): VaultUnlockMode {
+  return readPreferenceMap()[String(userId)] ?? readLegacyPreference(userId) ?? 'password'
+}
+
+export function writeUnlockMode(userId: number, mode: VaultUnlockMode) {
+  const map = readPreferenceMap()
+  map[String(userId)] = mode
+  localStorage.setItem(VAULT_UNLOCK_MODE_PREF_KEY, JSON.stringify(map))
+}
+
+export function clearUnlockModePreference(userId: number) {
   try {
     const map = readPreferenceMap()
-    map[String(userId)] = behavior
-    localStorage.setItem(VAULT_LOCK_PREF_KEY, JSON.stringify(map))
+    delete map[String(userId)]
+    if (Object.keys(map).length > 0) {
+      localStorage.setItem(VAULT_UNLOCK_MODE_PREF_KEY, JSON.stringify(map))
+    } else {
+      localStorage.removeItem(VAULT_UNLOCK_MODE_PREF_KEY)
+    }
+    const rawLegacy = localStorage.getItem(VAULT_LOCK_PREF_KEY)
+    if (!rawLegacy) return
+    const legacy = JSON.parse(rawLegacy) as Record<string, unknown>
+    delete legacy[String(userId)]
+    if (Object.keys(legacy).length > 0) {
+      localStorage.setItem(VAULT_LOCK_PREF_KEY, JSON.stringify(legacy))
+    } else {
+      localStorage.removeItem(VAULT_LOCK_PREF_KEY)
+    }
   } catch {
-    // ignore quota / private-mode failures; caller treats persist separately
+    // best-effort preference cleanup
   }
 }
 
@@ -148,16 +182,16 @@ export async function restoreVaultKey(userId: number): Promise<Uint8Array | null
   }
 }
 
+export async function removePersistedVaultKey(userId: number): Promise<void> {
+  await withDb(async (db) => {
+    const tx = db.transaction(VAULT_PERSIST_STORE, 'readwrite')
+    tx.objectStore(VAULT_PERSIST_STORE).delete(userId)
+    await txDone(tx)
+  })
+}
+
 export async function clearPersistedVaultKey(userId: number): Promise<void> {
-  try {
-    await withDb(async (db) => {
-      const tx = db.transaction(VAULT_PERSIST_STORE, 'readwrite')
-      tx.objectStore(VAULT_PERSIST_STORE).delete(userId)
-      await txDone(tx)
-    })
-  } catch {
-    // best-effort wipe
-  }
+  await removePersistedVaultKey(userId).catch(() => undefined)
 }
 
 export async function clearPersistedVaultKeysExcept(userId: number): Promise<void> {

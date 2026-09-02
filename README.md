@@ -381,6 +381,8 @@ More detail: [api/README.md](api/README.md), [web/README.md](web/README.md).
 
 - Notes and attachments are zero-knowledge encrypted in the browser; the API stores opaque ciphertext only
 - On first unlock, each user receives a **recovery key** — store it offline. Admin password reset clears the password wrap; recovery is required to regain vault access
+- **Device unlock** can protect a browser-local encrypted vault-key wrap with WebAuthn PRF. It never sends the device-derived secret or vault key to the server, and the system prompt may use face, fingerprint, PIN, or passcode
+- Device unlock is scoped to one browser profile and hostname, requires HTTPS (except `localhost`), and falls back to the account password if browser data or the device credential is removed
 - Configure secrets only via environment / `.env` (never commit secrets)
 - Use HTTPS and a reverse proxy in production; bind `OWNKEEP_PORT=127.0.0.1:8080` if the proxy runs on the same host
 - Rotate any credential that was ever committed or shared

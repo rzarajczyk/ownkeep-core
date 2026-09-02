@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthSession, User, VaultInfo } from '../types'
+import { DeviceUnlockError } from './deviceUnlock'
 import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './VaultGate'
 
 const {
@@ -11,6 +12,8 @@ const {
   unlockWithRecovery,
   unlockWithPassword,
   installPasswordWrap,
+  unlockWithDevice,
+  vaultState,
 } = vi.hoisted(() => ({
   completeRecovery: vi.fn(),
   rewrapVaultForPassword: vi.fn(),
@@ -18,6 +21,8 @@ const {
   unlockWithRecovery: vi.fn(),
   unlockWithPassword: vi.fn(),
   installPasswordWrap: vi.fn(),
+  unlockWithDevice: vi.fn(),
+  vaultState: {} as Record<string, unknown>,
 }))
 
 vi.mock('../api', () => ({
@@ -30,10 +35,15 @@ vi.mock('../crypto/vault', () => ({
 
 vi.mock('./VaultContext', () => ({
   useVault: () => ({
+    unlockMode: 'password',
+    deviceUnlockAvailability: 'available',
+    deviceUnlockEnrolled: false,
     setupVault,
     unlockWithRecovery,
     unlockWithPassword,
+    unlockWithDevice,
     installPasswordWrap,
+    ...vaultState,
   }),
 }))
 
@@ -171,8 +181,11 @@ const unlockUser: User = {
 
 describe('VaultUnlock', () => {
   beforeEach(() => {
+    for (const key of Object.keys(vaultState)) delete vaultState[key]
     unlockWithPassword.mockReset()
     unlockWithPassword.mockResolvedValue(undefined)
+    unlockWithDevice.mockReset()
+    unlockWithDevice.mockResolvedValue(undefined)
     installPasswordWrap.mockReset()
   })
 
@@ -228,5 +241,84 @@ describe('VaultUnlock', () => {
     await user.click(screen.getByRole('button', { name: 'Unlock' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect password')
+  })
+
+  it('offers explicit device unlock without prompting on render', async () => {
+    vaultState.unlockMode = 'device-verification'
+    vaultState.deviceUnlockEnrolled = true
+    const browser = userEvent.setup()
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Unlock with this device' })).toBeVisible()
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+    expect(unlockWithDevice).not.toHaveBeenCalled()
+
+    await browser.click(screen.getByRole('button', { name: 'Use password instead' }))
+    expect(screen.getByLabelText('Password')).toBeVisible()
+  })
+
+  it('unlocks with the enrolled device and calls onReady', async () => {
+    vaultState.unlockMode = 'device-verification'
+    vaultState.deviceUnlockEnrolled = true
+    const browser = userEvent.setup()
+    const onReady = vi.fn()
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={onReady}
+      />,
+    )
+
+    await browser.click(screen.getByRole('button', { name: 'Unlock with this device' }))
+
+    await waitFor(() => expect(unlockWithDevice).toHaveBeenCalledOnce())
+    expect(onReady).toHaveBeenCalledOnce()
+  })
+
+  it('shows the password immediately when enrolled device unlock is unavailable', () => {
+    vaultState.unlockMode = 'device-verification'
+    vaultState.deviceUnlockAvailability = 'unsupported'
+    vaultState.deviceUnlockEnrolled = true
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/device unlock is unavailable/i)).toBeVisible()
+    expect(screen.getByLabelText('Password')).toBeVisible()
+    expect(unlockWithDevice).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the password form after a device unlock failure', async () => {
+    vaultState.unlockMode = 'device-verification'
+    vaultState.deviceUnlockEnrolled = true
+    unlockWithDevice.mockRejectedValue(new DeviceUnlockError('failed', 'corrupt wrap'))
+    const browser = userEvent.setup()
+    render(
+      <VaultUnlock
+        user={unlockUser}
+        passwordHint={null}
+        onLogout={vi.fn()}
+        onReady={vi.fn()}
+      />,
+    )
+
+    await browser.click(screen.getByRole('button', { name: 'Unlock with this device' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Device verification failed')
+    expect(screen.getByLabelText('Password')).toBeVisible()
   })
 })
