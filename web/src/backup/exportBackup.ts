@@ -4,7 +4,8 @@ import { localDateStamp } from '../keepImport/labels'
 import { decryptLabels, fromWire, getCachedNoteKey } from '../notesCipher'
 import { api } from '../api'
 import type { LocalRepository } from '../offline/repository'
-import type { Attachment, EncryptedLabelWire, Note } from '../types'
+import type { Attachment, EncryptedLabelWire, EncryptedNoteWire, Note } from '../types'
+import type { SyncCursor } from '../offline/types'
 import { errorMessage } from '../utils'
 import {
   BACKUP_FORMAT,
@@ -30,9 +31,10 @@ export async function exportBackupZip(options: {
 }): Promise<BackupExportResult> {
   const { vaultKey, repo, onProgress, now = new Date() } = options
   onProgress(0)
+  const pendingNotes = await repo.listPendingNotes()
   const labelWires = await api.listLabels()
   const idToName = await decryptLabels(vaultKey, labelWires)
-  const records = await repo.listNotes()
+  const records = await listBackupNotes(pendingNotes)
   const warnings: string[] = []
   const notes: BackupNote[] = []
   const attachmentBytes: Record<string, Uint8Array> = {}
@@ -44,7 +46,7 @@ export async function exportBackupZip(options: {
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!
     try {
-      const note = await fromWire(record.wire, vaultKey, idToName)
+      const note = await fromWire(record, vaultKey, idToName)
       const exported = await exportNote(note, attachmentBytes, warnings)
       mergeNoteLabels(labels, note, idToName)
       notes.push(exported)
@@ -78,6 +80,29 @@ export async function exportBackupZip(options: {
     noteCount: notes.length,
     warnings,
   }
+}
+
+async function listBackupNotes(pendingNotes: EncryptedNoteWire[]): Promise<EncryptedNoteWire[]> {
+  const notes = new Map<string, EncryptedNoteWire>()
+  let cursor: SyncCursor = {}
+  while (true) {
+    const page = await api.notes({ limit: 100, ...cursor })
+    for (const wire of page.items) notes.set(wire.id, wire)
+    for (const id of page.deletedIds) notes.delete(id)
+    if (!page.hasMore) break
+    if (
+      !page.nextUpdatedAfter || !page.nextAfterId ||
+      (page.nextUpdatedAfter === cursor.updatedAfter && page.nextAfterId === cursor.afterId)
+    ) {
+      throw new Error(i18n.t('backup.export.errors.incompleteSync'))
+    }
+    cursor = { updatedAfter: page.nextUpdatedAfter, afterId: page.nextAfterId }
+  }
+  for (const pending of pendingNotes) {
+    const remote = notes.get(pending.id)
+    notes.set(pending.id, { ...pending, attachments: remote?.attachments ?? pending.attachments })
+  }
+  return [...notes.values()]
 }
 
 function labelsFromWires(wires: EncryptedLabelWire[], idToName: Map<string, string>): BackupLabel[] {

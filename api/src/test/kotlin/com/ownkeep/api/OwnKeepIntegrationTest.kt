@@ -26,6 +26,9 @@ import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 
 class OwnKeepPostgres(image: String) : PostgreSQLContainer<OwnKeepPostgres>(image)
 
@@ -51,6 +54,9 @@ class OwnKeepIntegrationTest {
 
     @Autowired
     lateinit var userRepository: UserRepository
+
+    @Autowired
+    lateinit var authService: AuthService
 
     @Autowired
     lateinit var passwordEncoder: org.springframework.security.crypto.password.PasswordEncoder
@@ -117,6 +123,47 @@ class OwnKeepIntegrationTest {
             alice.wrappedVaultKeyRecovery = null
             alice.vaultInitializedAt = null
             userRepository.save(alice)
+        }
+    }
+
+    @Test
+    fun `concurrent vault initialization preserves the first password and recovery wraps`() {
+        val userId = requireNotNull(userRepository.findByEmail("bob@example.com")?.id)
+        val first = InitializeVaultRequest(
+            b64(ByteArray(16) { 1 }), KdfParamsDto("argon2id", 65536, 3, 1),
+            b64(ByteArray(48) { 2 }), b64(ByteArray(48) { 3 }),
+        )
+        val second = first.copy(wrappedVaultKey = b64(ByteArray(48) { 4 }))
+        val executor = Executors.newSingleThreadExecutor()
+        var contender: Future<VaultInfo>? = null
+        try {
+            org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult {
+                userRepository.findForUpdateById(userId)
+                val jdbc = org.springframework.jdbc.core.JdbcTemplate(dataSource)
+                val blocker = jdbc.queryForObject("select pg_backend_pid()", Int::class.java)!!
+                contender = executor.submit<VaultInfo> { authService.initializeVault(userId, second) }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                var blocked = false
+                while (!blocked && System.nanoTime() < deadline) {
+                    blocked = jdbc.queryForObject(
+                        "select exists(select 1 from pg_stat_activity where ? = any(pg_blocking_pids(pid)))",
+                        Boolean::class.java,
+                        blocker,
+                    ) == true
+                    if (!blocked) Thread.sleep(25)
+                }
+                assertThat(blocked).describedAs("second setup waits for the user row").isTrue()
+                authService.initializeVault(userId, first)
+            }
+            val failure = runCatching { contender!!.get(10, TimeUnit.SECONDS) }.exceptionOrNull()
+            assertThat(failure?.cause).isInstanceOf(ApiException::class.java)
+            assertThat((failure!!.cause as ApiException).code).isEqualTo("vault_exists")
+            val user = userRepository.findById(userId).orElseThrow()
+            assertThat(user.kdfSalt).isEqualTo(ByteArray(16) { 1 })
+            assertThat(user.wrappedVaultKey).isEqualTo(ByteArray(48) { 2 })
+            assertThat(user.wrappedVaultKeyRecovery).isEqualTo(ByteArray(48) { 3 })
+        } finally {
+            executor.shutdownNow()
         }
     }
 

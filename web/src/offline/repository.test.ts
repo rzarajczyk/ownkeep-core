@@ -272,4 +272,15 @@ describe('LocalRepository sync helpers', () => {
     await repo.upsertLocalNote(wire('cipher-a', 'mutation-a'), write('cipher-a', 'mutation-a'))
     expect(await repo.pendingNoteIds()).toEqual(new Set([NOTE_ID]))
   })
+
+  it('returns only notes with pending outbox writes', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const syncedId = '22222222-2222-4222-8222-222222222222'
+    await repo.putSyncedNotes([{ ...wire('synced', 'synced-mutation'), id: syncedId }], [])
+    await repo.upsertLocalNote(wire('pending', 'pending-mutation'), write('pending', 'pending-mutation'))
+
+    expect(await repo.listPendingNotes()).toEqual([
+      expect.objectContaining({ id: NOTE_ID, ciphertext: 'pending' }),
+    ])
+  })
 })

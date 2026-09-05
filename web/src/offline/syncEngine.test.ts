@@ -571,6 +571,72 @@ describe('SyncEngine pull', () => {
     expect((await repo.getNote(noteId))?.neverSynced).toBe(false)
   })
 
+  it('resolves a create retry as a conflict when the server has a different mutation', async () => {
+    const noteId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const local = {
+      ...remoteWire(0),
+      id: noteId,
+      ciphertext: 'newer-local-cipher',
+      clientUpdatedAt: '2026-01-01T00:03:00.000Z',
+      clientMutationId: 'newer-local-mutation',
+    }
+    await repo.upsertLocalNote(local, local, { neverSynced: true })
+    const [op] = await repo.listOutbox()
+    const remote = {
+      ...remoteWire(0),
+      id: noteId,
+      ciphertext: 'first-create-cipher',
+      clientUpdatedAt: '2026-01-01T00:02:00.000Z',
+      clientMutationId: 'first-create-mutation',
+    }
+    const localWinner = { ...local, version: 1 }
+    api.createNote.mockRejectedValue(new ApiError('already exists', 409, 'note_exists'))
+    api.note.mockResolvedValue(remote)
+    api.conflictResolve.mockResolvedValue({
+      note: localWinner,
+      winner: 'local',
+      localRevision: null,
+      remoteRevision: null,
+    })
+
+    const engine = new SyncEngine(repo)
+    engine.setVaultKey(new Uint8Array(32))
+    await (
+      engine as unknown as { pushUpsert(operation: OutboxUpsertOp): Promise<void> }
+    ).pushUpsert(op as OutboxUpsertOp)
+
+    expect(api.conflictResolve).toHaveBeenCalledWith(
+      noteId,
+      expect.objectContaining({ version: -1, ciphertext: 'newer-local-cipher' }),
+    )
+    expect((await repo.getNote(noteId))?.wire.ciphertext).toBe('newer-local-cipher')
+    expect(await repo.listOutbox()).toEqual([])
+  })
+
+  it('acknowledges a create retry when the server has the same mutation', async () => {
+    const noteId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const local = {
+      ...remoteWire(0),
+      id: noteId,
+      clientMutationId: 'same-create-mutation',
+    }
+    await repo.upsertLocalNote(local, local, { neverSynced: true })
+    const [op] = await repo.listOutbox()
+    api.createNote.mockRejectedValue(new ApiError('already exists', 409, 'note_exists'))
+    api.note.mockResolvedValue({ ...local, version: 1 })
+
+    const engine = new SyncEngine(repo)
+    await (
+      engine as unknown as { pushUpsert(operation: OutboxUpsertOp): Promise<void> }
+    ).pushUpsert(op as OutboxUpsertOp)
+
+    expect(api.conflictResolve).not.toHaveBeenCalled()
+    expect(await repo.listOutbox()).toEqual([])
+    expect((await repo.getNote(noteId))?.neverSynced).toBe(false)
+  })
+
   it('does not pull while paused', async () => {
     const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
     api.notes.mockResolvedValue({

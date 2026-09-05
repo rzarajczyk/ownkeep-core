@@ -3,7 +3,7 @@ import { nowIso } from '../offline/lww'
 import type { LocalRepository } from '../offline/repository'
 import { ingestPlainNotes, type ImportResult, type PlainImportNote } from '../vaultImport/ingest'
 import { unzipArchive } from '../vaultImport/unzip'
-import { BackupFormatError, parseBackupEntries, type BackupNote } from './format'
+import { BackupFormatError, parseBackupEntries, type BackupArchive, type BackupNote } from './format'
 import { MAX_UNCOMPRESSED_BYTES, MAX_UNCOMPRESSED_MIB, MAX_ZIP_BYTES, MAX_ZIP_MIB } from './limits'
 
 function backupError(error: unknown): Error {
@@ -58,15 +58,7 @@ function toPlainNote(
   }
 }
 
-export async function importBackupZip(options: {
-  file: File
-  vaultKey: Uint8Array
-  repo: LocalRepository
-  existingLabels: Map<string, string>
-  extraLabelNames?: string[]
-  onProgress: (percent: number) => void
-}): Promise<ImportResult> {
-  const { file, vaultKey, repo, extraLabelNames = [], onProgress } = options
+export async function readBackupZip(file: File): Promise<BackupArchive> {
   if (file.size > MAX_ZIP_BYTES) {
     throw new Error(i18n.t('backup.restore.errors.zipTooLarge', { max: MAX_ZIP_MIB }))
   }
@@ -76,12 +68,29 @@ export async function importBackupZip(options: {
     MAX_UNCOMPRESSED_BYTES,
     i18n.t('backup.restore.errors.unzipTooLarge', { max: MAX_UNCOMPRESSED_MIB }),
   )
-  let archive
   try {
-    archive = parseBackupEntries(entries)
+    return parseBackupEntries(entries)
   } catch (error) {
     throw backupError(error)
   }
+}
+
+interface BackupImportOptions {
+  vaultKey: Uint8Array
+  repo: LocalRepository
+  existingLabels: Map<string, string>
+  extraLabelNames?: string[]
+  onProgress: (percent: number) => void
+}
+
+export async function importBackupZip(options: BackupImportOptions & { file: File }): Promise<ImportResult> {
+  return importBackupArchive({ ...options, archive: await readBackupZip(options.file) })
+}
+
+export async function importBackupArchive(
+  options: BackupImportOptions & { archive: BackupArchive },
+): Promise<ImportResult> {
+  const { archive, vaultKey, repo, extraLabelNames = [], onProgress } = options
   const warnings: string[] = []
   const labelNamesById = new Map(archive.labels.map((label) => [label.id, label.name]))
   const notes: PlainImportNote[] = []

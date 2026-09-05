@@ -1,9 +1,9 @@
-import { zipSync } from 'fflate'
+import { unzipSync, zipSync } from 'fflate'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomBytes } from '../crypto/aead'
 import { applyLanguagePreference } from '../i18n'
 import { LocalRepository } from '../offline/repository'
-import { BACKUP_FORMAT, BACKUP_VERSION, packBackupZip, type BackupArchive } from './format'
+import { BACKUP_FORMAT, BACKUP_ROOT, BACKUP_VERSION, packBackupZip, type BackupArchive } from './format'
 import { importBackupZip } from './importBackup'
 import { runBackupImport } from './runImport'
 import { MAX_ZIP_BYTES } from './limits'
@@ -264,6 +264,44 @@ describe('runBackupImport', () => {
     expect(api.deleteLabel).toHaveBeenCalledWith('work-id')
     expect(api.createNote.mock.calls[0]![0].labelIds).toHaveLength(1)
   })
+
+  it.each(['corrupt ZIP', 'wrong format', 'unsupported version', 'oversized ZIP', 'corrupt note'])(
+    'preserves notes and pending edits when replacing from a %s',
+    async (invalidKind) => {
+      let file = new File(['invalid archive'], 'backup.zip')
+      if (invalidKind === 'wrong format') {
+        file = new File([zipSync({ 'Takeout/Keep/note.json': new TextEncoder().encode('{}') })], 'backup.zip')
+      } else if (invalidKind === 'unsupported version') {
+        file = backupFile({ manifest: { format: BACKUP_FORMAT, version: BACKUP_VERSION + 1, exportedAt: '' } })
+      } else if (invalidKind === 'oversized ZIP') {
+        file = backupFile()
+        Object.defineProperty(file, 'size', { value: MAX_ZIP_BYTES + 1 })
+      } else if (invalidKind === 'corrupt note') {
+        const entries = unzipSync(new Uint8Array(await backupFile().arrayBuffer()))
+        entries[`${BACKUP_ROOT}/notes/note-1.json`] = new TextEncoder().encode('{broken')
+        file = new File([zipSync(entries)], 'backup.zip')
+      }
+      const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+      const note = {
+        id: 'pending-note', type: 'TEXT' as const, backgroundColor: '#ffffff',
+        archived: false, pinned: false, wrappedNoteKey: 'wrap', ciphertext: 'unsynced-content',
+        labelIds: [], attachments: [], version: 0,
+        createdAt: '2026-08-25T10:00:00.000Z', updatedAt: '2026-08-25T10:00:00.000Z',
+      }
+      await repo.upsertLocalNote(note, note, { neverSynced: true })
+      const pending = await repo.listOutbox()
+
+      await expect(runBackupImport({
+        file, vaultKey, mode: 'replace', repo, pauseSync, resumeSync, onProgress: vi.fn(),
+      })).rejects.toThrow()
+
+      expect(api.deleteNote).not.toHaveBeenCalled()
+      expect(api.deleteLabel).not.toHaveBeenCalled()
+      expect(api.createNote).not.toHaveBeenCalled()
+      expect(await repo.listOutbox()).toEqual(pending)
+      expect((await repo.getNote(note.id))?.wire).toEqual(note)
+    },
+  )
 
   it('add reuses Work and attaches Backup import 2026-08-25', async () => {
     await runBackupImport({

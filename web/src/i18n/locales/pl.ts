@@ -274,6 +274,9 @@ export default {
       cancel: 'Anuluj',
       vaultLocked: 'Odblokuj sejf przed utworzeniem kopii zapasowej.',
       toastCompleted: 'Pobrano kopię zapasową',
+      errors: {
+        incompleteSync: 'Nie udało się pobrać wszystkich notatek. Spróbuj ponownie utworzyć kopię zapasową.',
+      },
       result: {
         ready: 'Kopia zapasowa jest gotowa.',
         notes_one: '{{count}} notatka',

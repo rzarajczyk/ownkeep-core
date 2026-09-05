@@ -142,7 +142,7 @@ export function parseBackupEntries(rawEntries: Record<string, Uint8Array>): Back
     try {
       notes.push(parseNote(readJson(entries, path)))
     } catch {
-      continue
+      throw new BackupFormatError('invalidManifest')
     }
   }
   const attachmentBytes: Record<string, Uint8Array> = {}

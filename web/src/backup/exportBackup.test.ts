@@ -10,6 +10,7 @@ import { BACKUP_FORMAT, parseBackupEntries } from './format'
 
 const api = vi.hoisted(() => ({
   listLabels: vi.fn(),
+  notes: vi.fn(),
   attachmentCipherBlob: vi.fn(),
 }))
 
@@ -71,6 +72,28 @@ describe('exportBackupZip', () => {
     api.listLabels.mockResolvedValue([
       { id: 'label-work', ciphertext: 'work-cipher', createdAt: '2026-01-01T00:00:00.000Z' },
     ])
+    api.notes.mockResolvedValue({
+      items: [
+        {
+          id: 'note-1',
+          type: 'TEXT',
+          backgroundColor: '#fff475',
+          archived: false,
+          pinned: true,
+          wrappedNoteKey: 'wrap',
+          ciphertext: 'cipher',
+          labelIds: ['label-work'],
+          attachments: [],
+          createdAt: '2026-01-02T00:00:00.000Z',
+          updatedAt: '2026-01-03T00:00:00.000Z',
+          version: 1,
+        },
+      ],
+      deletedIds: [],
+      nextUpdatedAfter: null,
+      nextAfterId: null,
+      hasMore: false,
+    })
     notesCipher.decryptLabels.mockResolvedValue(new Map([['label-work', 'Work']]))
     notesCipher.fromWire.mockImplementation(async (wire: { id: string }) =>
       sampleNote({ id: wire.id }),
@@ -130,5 +153,53 @@ describe('exportBackupZip', () => {
       }),
     )
     expect(parsed.attachmentBytes['att-1']).toEqual(new Uint8Array([1, 2, 3, 4]))
+  })
+
+  it('fetches every server page and overlays pending local changes', async () => {
+    const repo = new LocalRepository(crypto.getRandomValues(new Uint32Array(1))[0]!)
+    const pending = {
+      id: 'note-1',
+      type: 'TEXT' as const,
+      backgroundColor: '#fff475',
+      archived: false,
+      pinned: true,
+      wrappedNoteKey: 'local-wrap',
+      ciphertext: 'pending-cipher',
+      labelIds: ['label-work'],
+      attachments: [],
+      createdAt: '2026-01-02T00:00:00.000Z',
+      updatedAt: '2026-01-04T00:00:00.000Z',
+      version: 1,
+    }
+    await repo.upsertLocalNote(pending, pending)
+    api.notes
+      .mockResolvedValueOnce({
+        items: [{ ...pending, ciphertext: 'server-cipher' }],
+        deletedIds: [],
+        nextUpdatedAfter: '2026-01-03T00:00:00.000Z',
+        nextAfterId: 'note-1',
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        items: [{ ...pending, id: 'note-2', ciphertext: 'second-page-cipher' }],
+        deletedIds: [],
+        nextUpdatedAfter: null,
+        nextAfterId: null,
+        hasMore: false,
+      })
+
+    const result = await exportBackupZip({ vaultKey, repo, onProgress: () => undefined })
+
+    expect(result.noteCount).toBe(2)
+    expect(api.notes).toHaveBeenNthCalledWith(2, {
+      limit: 100,
+      updatedAfter: '2026-01-03T00:00:00.000Z',
+      afterId: 'note-1',
+    })
+    expect(notesCipher.fromWire).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'note-1', ciphertext: 'pending-cipher' }),
+      vaultKey,
+      expect.any(Map),
+    )
   })
 })

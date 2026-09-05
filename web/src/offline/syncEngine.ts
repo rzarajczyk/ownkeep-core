@@ -172,9 +172,7 @@ export class SyncEngine {
       this.onStoreChanged?.()
     } catch (error) {
       if (error instanceof ApiError && error.code === 'note_exists') {
-        const wire = await api.note(op.noteId)
-        await this.repo.acknowledgeOutboxOp(op, wire)
-        this.onStoreChanged?.()
+        await this.recoverExistingNote(op)
         return
       }
       if (error instanceof ApiError && error.code === 'invalid_labels') {
@@ -194,9 +192,7 @@ export class SyncEngine {
             return
           }
           if (retryError instanceof ApiError && retryError.code === 'note_exists') {
-            const wire = await api.note(op.noteId)
-            await this.repo.acknowledgeOutboxOp(op, wire)
-            this.onStoreChanged?.()
+            await this.recoverExistingNote(sanitizedOp)
             return
           }
           if (retryError instanceof ApiError && retryError.code === 'note_not_found') {
@@ -218,6 +214,18 @@ export class SyncEngine {
       }
       throw error
     }
+  }
+
+  private async recoverExistingNote(op: OutboxUpsertOp) {
+    const remote = await api.note(op.noteId)
+    if (op.payload.clientMutationId && op.payload.clientMutationId === remote.clientMutationId) {
+      await this.repo.acknowledgeOutboxOp(op, remote)
+      this.onStoreChanged?.()
+      return
+    }
+    // An unacknowledged create has no server baseline. Force LWW and revision
+    // capture even when both the local placeholder and the server version are 0.
+    await this.resolveConflict({ ...op, payload: { ...op.payload, version: -1 } }, remote)
   }
 
   private async sanitizeDeletedLabels(op: OutboxUpsertOp): Promise<OutboxUpsertOp | null> {
@@ -249,7 +257,7 @@ export class SyncEngine {
     }
   }
 
-  private async resolveConflict(op: OutboxUpsertOp) {
+  private async resolveConflict(op: OutboxUpsertOp, remote?: EncryptedNoteWire) {
     const payload = op.payload
     if (!payload.wrappedNoteKey || !payload.ciphertext || payload.version == null) {
       throw new Error('Cannot resolve conflict without ciphertext and version')
@@ -260,7 +268,7 @@ export class SyncEngine {
     if (!this.vaultKey) {
       throw new Error('Cannot resolve conflict while vault is locked')
     }
-    const remote = await api.note(op.noteId)
+    remote ??= await api.note(op.noteId)
     const localRevisionId = crypto.randomUUID()
     const remoteRevisionId = crypto.randomUUID()
     const snapshots = await buildConflictRevisionSnapshots(

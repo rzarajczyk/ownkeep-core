@@ -5,7 +5,7 @@ import { BACKUP_IMPORT_LABEL_PREFIX, uniqueImportLabelName } from '../keepImport
 import { wipeVaultContent } from '../keepImport/wipeVault'
 import type { ImportResult } from '../vaultImport/ingest'
 import type { VaultImportMode, VaultImportProgress } from '../vaultImport/types'
-import { importBackupZip } from './importBackup'
+import { importBackupArchive, readBackupZip } from './importBackup'
 
 export async function runBackupImport(options: {
   file: File
@@ -17,6 +17,7 @@ export async function runBackupImport(options: {
   onProgress: (progress: VaultImportProgress) => void
 }): Promise<ImportResult> {
   const { file, vaultKey, mode, repo, pauseSync, resumeSync, onProgress } = options
+  const archive = await readBackupZip(file)
   pauseSync()
   try {
     if (mode === 'replace') {
@@ -30,8 +31,8 @@ export async function runBackupImport(options: {
     }
     const extraLabelNames =
       mode === 'add' ? [uniqueImportLabelName(idToName.values(), new Date(), BACKUP_IMPORT_LABEL_PREFIX)] : []
-    return await importBackupZip({
-      file,
+    return await importBackupArchive({
+      archive,
       vaultKey,
       repo,
       existingLabels,

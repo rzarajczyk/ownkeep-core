@@ -341,7 +341,7 @@ class AuthService(
 
     @Transactional
     fun initializeVault(userId: Long, request: InitializeVaultRequest): VaultInfo {
-        val user = userRepository.findById(userId).orElse(null)
+        val user = userRepository.findForUpdateById(userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
         if (user.vaultInitialized) {
             throw ApiException(HttpStatus.CONFLICT, "vault_exists", "Vault is already initialized")

@@ -124,6 +124,22 @@ export class LocalRepository {
     return notes
   }
 
+  async listPendingNotes(): Promise<EncryptedNoteWire[]> {
+    const db = await this.open()
+    try {
+      // Read payloads and their pending status together, before sync can acknowledge them.
+      const tx = db.transaction(['notes', 'outbox'], 'readonly')
+      const [ops, records] = await Promise.all([
+        req<OutboxOp[]>(tx.objectStore('outbox').getAll()),
+        req<StoredNoteRecord[]>(tx.objectStore('notes').getAll()),
+      ])
+      const ids = new Set(ops.map((op) => op.noteId))
+      return records.filter((record) => ids.has(record.id)).map((record) => record.wire)
+    } finally {
+      db.close()
+    }
+  }
+
   async getNote(id: string): Promise<StoredNoteRecord | undefined> {
     const db = await this.open()
     const tx = db.transaction('notes', 'readonly')

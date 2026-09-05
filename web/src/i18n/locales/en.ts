@@ -272,6 +272,9 @@ export default {
       cancel: 'Cancel',
       vaultLocked: 'Unlock the vault before creating a backup.',
       toastCompleted: 'Backup downloaded',
+      errors: {
+        incompleteSync: 'Unable to load all notes. Try the backup again.',
+      },
       result: {
         ready: 'Backup is ready.',
         notes_one: '{{count}} note',
